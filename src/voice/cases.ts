@@ -7,6 +7,7 @@ import {
   isPossibleVisitTotal,
   parseNotation,
 } from "../engine/dart.ts";
+import type { Scoring } from "./parse.ts";
 import { COMMANDS } from "./vocab.ts";
 
 export interface FixtureCase {
@@ -14,8 +15,7 @@ export interface FixtureCase {
   readonly expect: string;
   readonly then?: "next";
   readonly wake?: boolean;
-  readonly alt?: string;
-  readonly totals?: boolean;
+  readonly scoring?: Scoring;
   readonly note?: string;
 }
 
@@ -34,7 +34,7 @@ export interface LabExport {
   readonly heard: string;
   readonly expected: string;
   readonly engine?: string;
-  readonly totals?: boolean;
+  readonly scoring?: Scoring;
   readonly alternatives?: unknown;
   readonly parsed?: unknown;
 }
@@ -69,7 +69,10 @@ export function checkExpectation(expect: string): string | null {
       ? null
       : `impossible total: ${expect}`;
   try {
-    const darts = parseNotation(expect);
+    // "unk: " and a "?" after a dart mark darts that need a yes; strip them to check the darts.
+    const darts = parseNotation(
+      expect.replace(/^unk: /, "").replace(/\?(?=\s|$)/g, ""),
+    );
     return darts.length >= 1 && darts.length <= DARTS_PER_TURN
       ? null
       : `at most 3 darts: ${expect}`;
@@ -78,8 +81,11 @@ export function checkExpectation(expect: string): string | null {
   }
 }
 
-const keyOf = (text: string, totals: boolean | undefined): string =>
-  `${text}\u0000${totals ?? true}`;
+const keyOf = (text: string, scoring: Scoring | undefined): string =>
+  `${text}\u0000${scoring ?? "darts"}`;
+
+const isScoring = (value: unknown): value is Scoring =>
+  value === "darts" || value === "totals";
 
 export function mergeCases(
   fixtures: Fixtures,
@@ -87,7 +93,7 @@ export function mergeCases(
 ): MergeResult {
   const existing = new Map(
     fixtures.groups.flatMap((g) =>
-      g.cases.map((c) => [keyOf(c.text, c.totals), c.expect] as const),
+      g.cases.map((c) => [keyOf(c.text, c.scoring), c.expect] as const),
     ),
   );
   const fresh: FixtureCase[] = [];
@@ -95,12 +101,20 @@ export function mergeCases(
   const invalid: { index: number; reason: string }[] = [];
   let skipped = 0;
 
-  exports.forEach((entry, index) => {
+  exports.forEach((raw: LabExport | null | undefined, index) => {
+    if (typeof raw !== "object" || raw === null)
+      return void invalid.push({ index, reason: "not an export entry" });
+    const entry = raw;
     const text = typeof entry.heard === "string" ? entry.heard.trim() : "";
+    const scoring = isScoring(entry.scoring) ? entry.scoring : undefined;
     const reason =
-      text === "" ? "no transcript" : checkExpectation(entry.expected);
+      text === ""
+        ? "no transcript"
+        : entry.scoring !== undefined && scoring === undefined
+          ? "scoring must be darts or totals"
+          : checkExpectation(entry.expected);
     if (reason !== null) return void invalid.push({ index, reason });
-    const key = keyOf(text, entry.totals);
+    const key = keyOf(text, scoring);
     const known = existing.get(key);
     if (known === entry.expected) return void (skipped += 1);
     if (known !== undefined)
@@ -113,7 +127,7 @@ export function mergeCases(
     fresh.push({
       text,
       expect: entry.expected,
-      ...(entry.totals === false ? { totals: false } : {}),
+      ...(scoring === "totals" ? { scoring } : {}),
       ...(entry.engine ? { note: entry.engine } : {}),
     });
   });

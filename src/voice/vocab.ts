@@ -46,6 +46,10 @@ export interface Vocab {
   readonly totalWords: ReadonlyMap<string, number>;
   readonly wakeWord: string | null;
   readonly rewrites: readonly Rewrite[];
+  /** Near-miss word → the dart number it probably was, only after a multiplier. */
+  readonly nearMisses: ReadonlyMap<string, number>;
+  /** Words that make an ignored phrase look like a darts call (multipliers, numbers, bull…). */
+  readonly dartsWords: ReadonlySet<string>;
 }
 
 const isCommand = (name: string): name is CommandName =>
@@ -115,6 +119,20 @@ export function vocabOf(a: AliasFile): Vocab {
     totalWords: new Map(Object.entries(a.totalWords)),
     wakeWord: a.wakeWord ?? null,
     rewrites: rewriteRules(a.rewrites),
+    nearMisses: new Map(
+      Object.entries(a.nearMisses ?? {}).flatMap(([word, target]) => {
+        const n = numbers.get(target);
+        return n === undefined ? [] : [[word, n] as const];
+      }),
+    ),
+    dartsWords: new Set([
+      ...Object.keys(a.multipliers),
+      ...Object.keys(a.numbers),
+      ...Object.keys(a.totalWords),
+      ...Object.entries(a.specials)
+        .filter(([, d]) => d.segment > 0)
+        .flatMap(([phrase]) => tokenize(phrase)),
+    ]),
   };
   cache.set(a, vocab);
   return vocab;

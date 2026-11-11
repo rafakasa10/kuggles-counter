@@ -10,7 +10,7 @@ The name is a placeholder. No paid APIs, no accounts, no backend: a static site 
 |---|---|
 | 0 · Product decisions, screen map, visual direction | ✅ approved: direction **Chalk** ([docs/product/screens.md](docs/product/screens.md), [docs/design/chalk.md](docs/design/chalk.md)) |
 | 1 · Vosk-on-iPhone prototype | 🔄 built and tested on desktop; waiting for on-device results ([docs/prototypes/vosk-report.md](docs/prototypes/vosk-report.md)) |
-| 2 · Parser + X01 engine (test-first) | next |
+| 2 · Parser + X01 engine (test-first) | 🔄 parser, X01 engine and voice turn assembler built and tested; no UI yet |
 | 3 · Playable X01 with voice + Voice Test Lab | |
 | 4 · Remaining game modes | |
 
@@ -30,12 +30,14 @@ npm run model:fetch   # downloads the 41 MB Vosk model, verifies it, checks the 
 npm run dev           # http://localhost:5173 (also on your LAN)
 npm run dev:https     # self-signed HTTPS on the LAN, so an iPhone's mic works during development
 npm test              # Vitest
+npm run add-cases -- export.json   # merges a Voice Test Lab export into the parser fixture table
 npm run readability   # regenerates docs/design/chalk-readability.md from the Chalk tokens
 ```
 
 ## Layout
 
-- `src/voice/`: aliases (`aliases/en.json`) and the Vosk grammar generator. Parser and engines come in Phase 2.
+- `src/engine/`: the dart model (`dart.ts`) and the X01 engine (`x01/`: rules, checkout hints, match with legs/sets and undo, stats). Pure TypeScript, no UI.
+- `src/voice/`: aliases (`aliases/en.json`), the Vosk grammar generator, the phrase parser (`parse.ts`, fixtures in `tests/fixtures/voice-cases.json`), recogniser alternatives (`heard.ts`) and the turn assembler (`assemble.ts`).
 - `src/ui/theme/chalk.json`: colour and type tokens, the single source of truth for both themes.
 - `src/proto/`: Phase 1 prototypes (throwaway measurement tools).
 - `docs/`: product decisions and wireframes, design spec, voice spec, prototype report.

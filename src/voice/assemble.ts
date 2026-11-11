@@ -1,36 +1,36 @@
 /**
  * Turn assembler (docs/specs/voice.md §3): builds one pending turn from final phrases,
  * whichever engine or mic mode they came from. Pure; the app owns the grace timer and
- * applies the effects (commit to the game engine, run a command, log an ignored phrase).
+ * applies the effects (commit to the game engine, run a command, log a phrase).
  *
  * - Darts gather across phrases, up to 3. Extra darts are dropped and reported.
  * - The turn completes at 3 darts, on next/done/no score, on a total or "bust" (X01),
  *   or straight away when the mode says the darts so far end it (checkout, bust).
- * - A complete turn auto-commits after the grace period only when nothing was uncertain;
- *   otherwise it waits for "yes" (commit) or "no" (discard). A new turn replaces a held one.
+ * - Doubtful darts (low confidence, a near-miss guess, [unk] dropped, the first result
+ *   after a garbled phrase) are flagged one by one. A turn with any doubt never
+ *   auto-commits: "yes" confirms it, "no" removes the doubtful darts, and a new phrase
+ *   replaces them. A complete, certain turn is never changed by a stray phrase.
  */
 import { DARTS_PER_TURN, MISS, type Dart } from "../engine/dart.ts";
 import type { Heard, UncertainReason } from "./heard.ts";
-import type {
-  CommandName,
-  IgnoreReason,
-  ParseResult,
-  Reading,
-} from "./parse.ts";
+import type { CommandName, IgnoreReason } from "./parse.ts";
 
 export type TurnEnd = "three" | "next" | "early" | "total" | "bust";
 
 export interface PendingTurn {
   readonly darts: readonly Dart[];
+  /** Per dart: needs confirming (highlight it in the strip). */
+  readonly doubtful: readonly boolean[];
   readonly total: number | null;
   readonly bust: boolean;
   /** Why the turn is complete, or null while it is still collecting darts. */
   readonly end: TurnEnd | null;
+  /** Why something in the turn needs confirming; a total or bust with reasons is doubtful as a whole. */
   readonly uncertain: readonly UncertainReason[];
-  /** The other reading of the whole turn, when an ambiguous phrase was resolved. */
-  readonly alt: Reading | null;
   /** Darts heard after the turn had ended. */
   readonly dropped: number;
+  /** A darts-like phrase was ignored since the last accepted one. */
+  readonly garbled: boolean;
 }
 
 /** What the game engine receives (X01's VisitInput has the same shape). */
@@ -38,6 +38,8 @@ export type TurnValue =
   | { readonly kind: "darts"; readonly darts: readonly Dart[] }
   | { readonly kind: "total"; readonly total: number }
   | { readonly kind: "bust" };
+
+export type NotUsedReason = "turn complete" | "bust not possible";
 
 export type Effect =
   | { readonly kind: "commit"; readonly visit: TurnValue }
@@ -50,6 +52,11 @@ export type Effect =
       readonly text: string;
       readonly reason: IgnoreReason;
     }
+  | {
+      readonly kind: "notUsed";
+      readonly text: string;
+      readonly reason: NotUsedReason;
+    }
   | { readonly kind: "tooManyDarts"; readonly dropped: number };
 
 export type AssembleEvent =
@@ -58,12 +65,12 @@ export type AssembleEvent =
 
 /** What the current game mode tells the assembler. */
 export interface AssembleContext {
-  /** X01 accepts totals and "bust". */
-  readonly allowTotals: boolean;
   /** True when these darts end the turn early (X01: a checkout or a bust). */
   readonly endsTurn: (darts: readonly Dart[]) => boolean;
-  /** True when this total could be the player's visit (X01: it neither busts nor is an impossible finish). */
-  readonly totalFits: (total: number) => boolean;
+  /** X01 takes "bust" as a visit; other modes pass it on as a command. */
+  readonly acceptsBust: boolean;
+  /** X01: a bust can happen from the current score (not at 501). */
+  readonly bustPossible: () => boolean;
 }
 
 export interface Assembled {
@@ -73,19 +80,22 @@ export interface Assembled {
 
 export const EMPTY_TURN: PendingTurn = Object.freeze({
   darts: [],
+  doubtful: [],
   total: null,
   bust: false,
   end: null,
   uncertain: [],
-  alt: null,
   dropped: 0,
+  garbled: false,
 });
 
+const hasDoubt = (t: PendingTurn): boolean =>
+  t.uncertain.length > 0 || t.doubtful.some(Boolean);
 export const canAutoCommit = (t: PendingTurn): boolean =>
-  t.end !== null && t.uncertain.length === 0;
+  t.end !== null && !hasDoubt(t);
+/** Complete and certain: only "no", "undo" or the commit can change it. */
+const isSettled = (t: PendingTurn): boolean => t.end !== null && !hasDoubt(t);
 
-const isEmpty = (t: PendingTurn): boolean =>
-  t.darts.length === 0 && t.total === null && !t.bust;
 const unchanged = (turn: PendingTurn, ...effects: Effect[]): Assembled => ({
   turn,
   effects,
@@ -106,23 +116,43 @@ const commit = (t: PendingTurn): Assembled => ({
   effects: [{ kind: "commit", visit: valueOf(t) }],
 });
 
-/** A finished or held turn is replaced by the next one; a collecting turn is extended. */
-const base = (t: PendingTurn): PendingTurn => (t.end !== null ? EMPTY_TURN : t);
+const endFor = (
+  darts: readonly Dart[],
+  ctx: AssembleContext,
+): TurnEnd | null =>
+  ctx.endsTurn(darts)
+    ? "early"
+    : darts.length >= DARTS_PER_TURN
+      ? "three"
+      : null;
+
+/** The turn without its doubtful parts, collecting again unless the certain darts end it. */
+function withoutDoubt(t: PendingTurn, ctx: AssembleContext): PendingTurn {
+  if (t.total !== null || t.bust) return EMPTY_TURN;
+  const darts = t.darts.filter((_, i) => !t.doubtful[i]);
+  return {
+    ...EMPTY_TURN,
+    darts,
+    doubtful: darts.map(() => false),
+    end: darts.length > 0 ? endFor(darts, ctx) : null,
+  };
+}
 
 function addDarts(
   start: PendingTurn,
   incoming: readonly Dart[],
+  doubts: readonly boolean[],
   ctx: AssembleContext,
 ): Assembled {
-  const turn = incoming.reduce<PendingTurn>((t, dart) => {
+  const turn = incoming.reduce<PendingTurn>((t, dart, i) => {
     if (t.end !== null) return { ...t, dropped: t.dropped + 1 };
     const darts = [...t.darts, dart];
-    const end: TurnEnd | null = ctx.endsTurn(darts)
-      ? "early"
-      : darts.length === DARTS_PER_TURN
-        ? "three"
-        : null;
-    return { ...t, darts, end };
+    return {
+      ...t,
+      darts,
+      doubtful: [...t.doubtful, doubts[i] === true],
+      end: endFor(darts, ctx),
+    };
   }, start);
   const capped = turn.end === "three" ? turn.dropped - start.dropped : 0;
   return {
@@ -131,114 +161,124 @@ function addDarts(
   };
 }
 
-/** Picks the darts or the total reading of an ambiguous phrase from the game state. */
-/**
- * Picks the reading of a phrase: darts when darts are already in the strip, else the
- * first reading that fits the game state. A lone total that doesn't fit is still taken
- * (the engine scores it as a bust); without totals only darts readings count.
- */
-function chooseReading(
-  r: Extract<ParseResult, { kind: "darts" | "total" }>,
-  pending: PendingTurn,
-  ctx: AssembleContext,
-): { readonly chosen: Reading | undefined; readonly other: Reading | null } {
-  const primary: Reading =
-    r.kind === "darts"
-      ? { kind: "darts", darts: r.darts }
-      : { kind: "total", total: r.total };
-  const readings: readonly Reading[] = r.alt ? [primary, r.alt] : [primary];
-  const darts = readings.find((x) => x.kind === "darts");
-  const fits = (x: Reading): boolean =>
-    x.kind === "darts" || (ctx.allowTotals && ctx.totalFits(x.total));
-  const chosen =
-    pending.darts.length > 0 && darts
-      ? darts
-      : (readings.find(fits) ?? (ctx.allowTotals ? primary : darts));
-  const other = readings.find((x) => x !== chosen) ?? null;
-  return { chosen, other };
-}
+const reasonsFor = (heard: Heard, garbled: boolean): UncertainReason[] =>
+  merge(heard.uncertain, garbled ? ["after a garbled phrase"] : []);
 
-function onScore(
+function onDarts(
   t: PendingTurn,
-  r: Extract<ParseResult, { kind: "darts" | "total" }>,
   heard: Heard,
+  darts: readonly Dart[],
+  then: "next" | null,
   ctx: AssembleContext,
 ): Assembled {
-  const start = base(t);
-  const { chosen, other } = chooseReading(r, start, ctx);
-  if (chosen === undefined)
+  if (isSettled(t))
     return unchanged(t, {
-      kind: "ignored",
+      kind: "notUsed",
       text: heard.text,
-      reason: "not darts, a total or a command",
+      reason: "turn complete",
     });
-  const uncertain = merge(start.uncertain, heard.uncertain);
-
-  if (chosen.kind === "total") {
-    const alt: Reading | null =
-      other?.kind === "darts"
-        ? { kind: "darts", darts: [...start.darts, ...other.darts] }
-        : other;
-    return unchanged({
-      ...EMPTY_TURN,
-      total: chosen.total,
-      end: "total",
-      uncertain,
-      alt,
-    });
-  }
-  const added = addDarts({ ...start, uncertain, alt: null }, chosen.darts, ctx);
-  const alt =
-    other === null
-      ? null
-      : other.kind === "total"
-        ? other
-        : { kind: "darts" as const, darts: [...start.darts, ...other.darts] };
-  const withAlt = { ...added.turn, alt };
+  const held = t.end !== null;
+  const start = held ? withoutDoubt(t, ctx) : t;
+  const doubts = darts.map((_, i) => t.garbled || heard.doubtful[i] === true);
+  const reasons = doubts.some(Boolean) ? reasonsFor(heard, t.garbled) : [];
+  const collecting = {
+    ...start,
+    end: start.end === "three" || start.end === "early" ? start.end : null,
+    garbled: false,
+  };
+  const added = addDarts(
+    { ...collecting, uncertain: merge(collecting.uncertain, reasons) },
+    darts,
+    doubts,
+    ctx,
+  );
+  const wantsNext = then === "next" || t.end === "next";
   const turn =
-    r.then === "next" && withAlt.end === null
-      ? { ...withAlt, end: "next" as const }
-      : withAlt;
+    wantsNext && added.turn.end === null
+      ? { ...added.turn, end: "next" as const }
+      : added.turn;
   return { turn, effects: added.effects };
+}
+
+function onTotal(t: PendingTurn, heard: Heard, total: number): Assembled {
+  if (isSettled(t))
+    return unchanged(t, {
+      kind: "notUsed",
+      text: heard.text,
+      reason: "turn complete",
+    });
+  return unchanged({
+    ...EMPTY_TURN,
+    total,
+    end: "total",
+    uncertain: reasonsFor(heard, t.garbled),
+  });
+}
+
+function onBust(t: PendingTurn, heard: Heard, ctx: AssembleContext): Assembled {
+  if (!ctx.acceptsBust)
+    return unchanged(t, { kind: "command", command: "bust" });
+  if (isSettled(t))
+    return unchanged(t, {
+      kind: "notUsed",
+      text: heard.text,
+      reason: "turn complete",
+    });
+  if (!ctx.bustPossible())
+    return unchanged(t, {
+      kind: "notUsed",
+      text: heard.text,
+      reason: "bust not possible",
+    });
+  return unchanged({
+    ...EMPTY_TURN,
+    bust: true,
+    end: "bust",
+    uncertain: reasonsFor(heard, t.garbled),
+  });
 }
 
 function onCommand(
   t: PendingTurn,
+  heard: Heard,
   command: CommandName,
   ctx: AssembleContext,
 ): Assembled {
   switch (command) {
     case "confirm":
-      return t.end !== null ? commit(t) : unchanged({ ...t, uncertain: [] });
+      if (t.end !== null) return commit(t);
+      return unchanged({
+        ...t,
+        doubtful: t.doubtful.map(() => false),
+        uncertain: [],
+      });
     case "cancel":
-      return unchanged(EMPTY_TURN);
+      // "No" is everyday speech: it only acts on doubtful darts or a finished turn.
+      if (hasDoubt(t))
+        return unchanged({ ...withoutDoubt(t, ctx), garbled: t.garbled });
+      return t.end !== null ? unchanged(EMPTY_TURN) : unchanged(t);
     case "next":
-      return t.end !== null
-        ? unchanged(t)
-        : unchanged({
-            ...t,
-            darts: t.darts.length > 0 ? t.darts : [MISS],
-            end: "next",
-          });
+      if (t.end !== null) return unchanged(t);
+      return unchanged({
+        ...t,
+        darts: t.darts.length > 0 ? t.darts : [MISS],
+        doubtful: t.darts.length > 0 ? t.doubtful : [false],
+        end: "next",
+      });
     case "undo":
-      if (isEmpty(t)) return unchanged(t, { kind: "command", command: "undo" });
+      if (t.darts.length === 0 && t.total === null && !t.bust)
+        return unchanged(t, { kind: "command", command: "undo" });
       if (t.total !== null || t.bust) return unchanged(EMPTY_TURN);
       return unchanged({
         ...t,
         darts: t.darts.slice(0, -1),
+        doubtful: t.doubtful.slice(0, -1),
+        uncertain: t.doubtful.slice(0, -1).some(Boolean) ? t.uncertain : [],
         end: null,
-        alt: null,
         dropped: 0,
       });
     case "bust":
-      if (!ctx.allowTotals)
-        return unchanged(t, { kind: "command", command: "bust" });
-      return unchanged({
-        ...EMPTY_TURN,
-        bust: true,
-        end: "bust",
-        uncertain: base(t).uncertain,
-      });
+      return onBust(t, heard, ctx);
     default:
       return unchanged(t, { kind: "command", command });
   }
@@ -255,7 +295,7 @@ export function assemble(
   const r = heard.result;
   switch (r.kind) {
     case "ignored":
-      return unchanged(t, {
+      return unchanged(r.dartsLike ? { ...t, garbled: true } : t, {
         kind: "ignored",
         text: heard.text,
         reason: r.reason,
@@ -263,9 +303,10 @@ export function assemble(
     case "wake":
       return unchanged(t);
     case "command":
-      return onCommand(t, r.command, ctx);
+      return onCommand(t, heard, r.command, ctx);
     case "darts":
+      return onDarts(t, heard, r.darts, r.then, ctx);
     case "total":
-      return onScore(t, r, heard, ctx);
+      return onTotal(t, heard, r.total);
   }
 }

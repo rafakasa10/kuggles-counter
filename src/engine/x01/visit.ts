@@ -16,7 +16,7 @@ import {
   type Rules,
   type VisitOutcome,
 } from "./rules.ts";
-import { checkoutQuestions, dartsAtDoubleOptions } from "./totals.ts";
+import { OPENING_TOTALS, bustOptions, checkoutQuestions, dartsAtDoubleOptions } from "./totals.ts";
 import type { VisitError, VisitInput } from "./types.ts";
 
 export interface ResolvedVisit {
@@ -84,36 +84,34 @@ function totalVisit(
   rules: Rules,
 ): Result<ResolvedVisit, VisitError> {
   const { total } = input;
-  if (!isPossibleVisitTotal(total)) return err("impossible total");
-  const isIn = p.isIn || rules.inRule === "straight" || total > 0;
-  const base = { darts: null, isIn };
+  const opening = !p.isIn && rules.inRule === "double";
+  if (!isPossibleVisitTotal(total) || (opening && total > 0 && !OPENING_TOTALS.has(total)))
+    return err("impossible total");
+  const base = { darts: null, isIn: !opening || total > 0 };
   const after = p.remaining - total;
-  if (busts(after, null, rules.outRule))
-    return bustVisit(input.dartsAtDouble, p);
+  if (busts(after, null, rules.outRule)) return bustVisit(input.dartsAtDouble, p, rules, true);
 
   if (after === 0) {
     const q = checkoutQuestions(p.remaining, rules.outRule);
-    if (q.dartsUsed.length === 0) return err("impossible checkout");
+    // Exactly 0 with no possible finish means the last dart couldn't finish: a bust.
+    if (q.dartsUsed.length === 0) return bustVisit(input.dartsAtDouble, p, rules, true);
     const used = pick(input.dartsUsed, q.dartsUsed);
     if (!used.ok) return used;
     if (used.value === null) return err("checkout details needed");
     const atDouble = pick(input.dartsAtDouble, q.dartsAtDouble(used.value));
     if (!atDouble.ok) return atDouble;
     if (atDouble.value === null) return err("checkout details needed");
-    const dartsThrown = used.value;
     return ok({
       ...base,
       outcome: "checkout",
       scored: total,
       remaining: 0,
-      dartsThrown,
+      dartsThrown: used.value,
       dartsAtDouble: atDouble.value,
     });
   }
 
-  const options = p.isIn
-    ? dartsAtDoubleOptions(p.remaining, total, rules.outRule)
-    : [0];
+  const options = p.isIn ? dartsAtDoubleOptions(p.remaining, total, rules.outRule) : [0];
   const atDouble = pick(input.dartsAtDouble, options);
   if (!atDouble.ok) return atDouble;
   return ok({
@@ -126,23 +124,29 @@ function totalVisit(
   });
 }
 
+const ANY_COUNT = [0, 1, 2, 3];
+
+/**
+ * A bust visit from the total pad. `certain` when the total itself shows a bust; the
+ * Bust key alone is refused where no visit could bust (e.g. at 501).
+ */
 function bustVisit(
   dartsAtDouble: number | undefined,
   p: PlayerState,
+  rules: Rules,
+  certain: boolean,
 ): Result<ResolvedVisit, VisitError> {
-  const valid =
-    dartsAtDouble === undefined ||
-    (Number.isInteger(dartsAtDouble) &&
-      dartsAtDouble >= 0 &&
-      dartsAtDouble <= DARTS_PER_TURN);
-  if (!valid) return err("invalid checkout details");
+  const options = bustOptions(p.remaining, rules.outRule, p.isIn);
+  if (!certain && options.length === 0) return err("bust not possible");
+  const atDouble = pick(dartsAtDouble, options.length > 0 ? options : ANY_COUNT);
+  if (!atDouble.ok) return atDouble;
   return ok({
     outcome: "bust",
     scored: 0,
     remaining: p.remaining,
     darts: null,
     dartsThrown: DARTS_PER_TURN,
-    dartsAtDouble: dartsAtDouble ?? null,
+    dartsAtDouble: atDouble.value,
     isIn: p.isIn,
   });
 }
@@ -158,6 +162,6 @@ export function resolveVisit(
     case "total":
       return totalVisit(input, p, rules);
     case "bust":
-      return bustVisit(input.dartsAtDouble, p);
+      return bustVisit(input.dartsAtDouble, p, rules, false);
   }
 }

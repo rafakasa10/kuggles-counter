@@ -5,6 +5,7 @@ import {
   formatFixtures,
   mergeCases,
   type Fixtures,
+  type LabExport,
 } from "../../src/voice/cases.ts";
 import fixtures from "../fixtures/voice-cases.json";
 
@@ -27,6 +28,9 @@ describe("checkExpectation", () => {
       "newGame",
       "wake",
       "ignored",
+      "D16? S8 S4",
+      "unk: S20",
+      "unk: D25 T17? M",
     ])
       expect(checkExpectation(ok), ok).toBeNull();
   });
@@ -89,13 +93,32 @@ describe("mergeCases", () => {
     expect(result.fixtures).toEqual(base);
   });
 
-  it("treats the same text with and without totals as different cases", () => {
+  it("treats the same text in darts and totals mode as different cases", () => {
     const result = mergeCases(base, [
-      { heard: "triple twenty", expected: "T20", totals: false },
+      { heard: "triple twenty", expected: "T20", scoring: "totals" },
+      { heard: "triple twenty", expected: "T20", scoring: "darts" },
     ]);
     expect(result.added).toBe(1);
+    expect(result.skipped).toBe(1);
     expect(result.fixtures.groups.at(-1)?.cases).toEqual([
-      { text: "triple twenty", expect: "T20", totals: false },
+      { text: "triple twenty", expect: "T20", scoring: "totals" },
+    ]);
+  });
+
+  it("rejects entries that aren't objects or have a bad scoring mode", () => {
+    const result = mergeCases(base, [
+      null as unknown as LabExport,
+      "x" as unknown as LabExport,
+      {
+        heard: "twenty",
+        expected: "S20",
+        scoring: "both" as unknown as "darts",
+      },
+    ]);
+    expect(result.invalid).toEqual([
+      { index: 0, reason: "not an export entry" },
+      { index: 1, reason: "not an export entry" },
+      { index: 2, reason: "scoring must be darts or totals" },
     ]);
   });
 

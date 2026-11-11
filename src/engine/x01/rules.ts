@@ -61,7 +61,7 @@ export const canFinish = (remaining: number, out: OutRule, dartsLeft: number = D
 
 /** A dart thrown at this score is a dart "at a double" (at a finish) for checkout %. */
 export const isOneDartFinish = (remaining: number, out: OutRule): boolean =>
-  minDartsToFinish(remaining, out, 1) === 1;
+  FINISHES[out][0]?.has(remaining) ?? false;
 
 export const maxCheckout = (out: OutRule): number => Math.max(...(FINISHES[out][2] ?? [0]));
 

@@ -36,22 +36,35 @@ const startsWithAt = (
   phrase: readonly string[],
 ): boolean => phrase.every((word, k) => tokens[i + k] === word);
 
-/** Replaces each rewrite phrase with its canonical form. Returns a new array. */
-export function applyRewrites(
+/** A token and the positions in `tokenize(text)` it came from (several after a rewrite). */
+export interface Token {
+  readonly w: string;
+  readonly at: readonly number[];
+}
+
+/** Replaces each rewrite phrase with its canonical form, keeping where each token came from. */
+export function rewriteTokens(
   tokens: readonly string[],
   rules: readonly Rewrite[],
-): string[] {
-  const out: string[] = [];
+): Token[] {
+  const out: Token[] = [];
   let i = 0;
   while (i < tokens.length) {
     const rule = rules.find(([from]) => startsWithAt(tokens, i, from));
     if (rule) {
-      out.push(...rule[1]);
+      const at = rule[0].map((_, k) => i + k);
+      out.push(...rule[1].map((w) => ({ w, at })));
       i += rule[0].length;
     } else {
-      out.push(tokens[i] ?? "");
+      out.push({ w: tokens[i] ?? "", at: [i] });
       i += 1;
     }
   }
   return out;
 }
+
+/** Replaces each rewrite phrase with its canonical form. Returns a new array. */
+export const applyRewrites = (
+  tokens: readonly string[],
+  rules: readonly Rewrite[],
+): string[] => rewriteTokens(tokens, rules).map((t) => t.w);

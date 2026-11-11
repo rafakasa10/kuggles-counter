@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  OPENING_TOTALS,
+  bustOptions,
   checkoutQuestions,
   dartsAtDoubleOptions,
 } from "../../../src/engine/x01/totals.ts";
@@ -59,5 +61,40 @@ describe("dartsAtDoubleOptions: a total-pad visit that didn't finish", () => {
     expect(dartsAtDoubleOptions(32, 31, "double")).toEqual([]);
     expect(dartsAtDoubleOptions(32, 32, "double")).toEqual([]);
     expect(dartsAtDoubleOptions(501, 179, "double")).toEqual([]);
+  });
+});
+
+describe("bustOptions: can this score bust, and with how many darts at a double", () => {
+  it("is empty where no visit can bust", () => {
+    expect(bustOptions(501, "double", true)).toEqual([]);
+    expect(bustOptions(182, "double", true)).toEqual([]);
+    expect(bustOptions(180, "straight", true)).toEqual([]);
+    expect(bustOptions(501, "double", false)).toEqual([]);
+  });
+
+  it("181 busts only by 180 leaving 1, with no dart at a double", () => {
+    expect(bustOptions(181, "double", true)).toEqual([0]);
+    expect(bustOptions(179, "straight", true)).toEqual([0]);
+  });
+
+  it("on a double, every dart is at a double", () => {
+    expect(bustOptions(2, "double", true)).toEqual([1, 2, 3]);
+  });
+
+  it("follows the score in between", () => {
+    expect(bustOptions(100, "double", true)).toEqual([0, 1, 2]);
+  });
+
+  it("knows a double-in player can open and bust in one visit from a low score", () => {
+    expect(bustOptions(40, "double", false).length).toBeGreaterThan(0);
+  });
+});
+
+describe("OPENING_TOTALS", () => {
+  it("is the opening double plus up to two darts: 2–170", () => {
+    expect(OPENING_TOTALS.has(2)).toBe(true);
+    expect(OPENING_TOTALS.has(170)).toBe(true);
+    expect(OPENING_TOTALS.has(45)).toBe(true);
+    for (const t of [0, 1, 171, 180]) expect(OPENING_TOTALS.has(t), String(t)).toBe(false);
   });
 });

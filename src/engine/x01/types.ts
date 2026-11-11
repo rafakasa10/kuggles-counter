@@ -56,7 +56,7 @@ export type VisitError =
   | "invalid dart"
   | "darts after the visit ended"
   | "impossible total"
-  | "impossible checkout"
+  | "bust not possible"
   | "checkout details needed"
   | "invalid checkout details";
 

@@ -228,6 +228,14 @@ describe("applyVisit: double in", () => {
     expect(m.visits.map((v) => v.scored)).toEqual([0, 0, 100]);
   });
 
+  it("rejects opening totals no visit with a double in could make", () => {
+    const m = created(config({ inRule: "double" }));
+    expect(errorOf(m, { kind: "total", total: 180 })).toBe("impossible total");
+    expect(errorOf(m, { kind: "total", total: 171 })).toBe("impossible total");
+    expect(errorOf(m, { kind: "total", total: 1 })).toBe("impossible total");
+    expect(errorOf(m, { kind: "total", total: 170 })).toBeNull();
+  });
+
   it("opens with a non-zero total on the total pad", () => {
     const m = play(
       created(config({ inRule: "double" })),
@@ -361,13 +369,20 @@ describe("applyVisit: total input", () => {
     ).toBe("invalid checkout details");
   });
 
-  it("rejects a checkout total the out rule can't finish", () => {
-    expect(
-      errorOf(created(config({ startScore: 159 })), {
-        kind: "total",
-        total: 159,
-      }),
-    ).toBe("impossible checkout");
+  it("scores a total that reaches 0 without a possible finish as a bust", () => {
+    const m = play(created(config({ startScore: 159 })), {
+      kind: "total",
+      total: 159,
+    });
+    expect(m.visits[0]).toMatchObject({
+      outcome: "bust",
+      scored: 0,
+      remaining: 159,
+    });
+    expect(m.winner).toBeNull();
+  });
+
+  it("rejects checkout details that don't fit the score", () => {
     expect(
       errorOf(created(config({ startScore: 21 })), {
         kind: "total",
@@ -378,11 +393,11 @@ describe("applyVisit: total input", () => {
   });
 
   it("takes the Bust key as a bust of three darts", () => {
-    const m = play(created(config()), { kind: "bust" });
+    const m = play(created(config({ startScore: 100 })), { kind: "bust" });
     expect(m.visits[0]).toMatchObject({
       outcome: "bust",
       scored: 0,
-      remaining: 501,
+      remaining: 100,
       dartsThrown: 3,
       dartsAtDouble: null,
     });
@@ -391,7 +406,25 @@ describe("applyVisit: total input", () => {
       dartsAtDouble: 2,
     });
     expect(given.visits[0]?.dartsAtDouble).toBe(2);
-    expect(errorOf(created(config()), { kind: "bust", dartsAtDouble: 4 })).toBe(
+  });
+
+  it("refuses the Bust key where no visit could bust", () => {
+    expect(errorOf(created(config()), { kind: "bust" })).toBe(
+      "bust not possible",
+    );
+    expect(
+      errorOf(created(config({ startScore: 182 })), { kind: "bust" }),
+    ).toBe("bust not possible");
+    const m = play(created(config({ startScore: 181 })), { kind: "bust" });
+    expect(m.visits[0]?.dartsAtDouble).toBe(0); // only 180 leaving 1, never at a double
+  });
+
+  it("checks darts at a double on a bust against what the score allows", () => {
+    const m = created(config({ startScore: 100 }));
+    expect(errorOf(m, { kind: "bust", dartsAtDouble: 3 })).toBe(
+      "invalid checkout details",
+    );
+    expect(errorOf(m, { kind: "bust", dartsAtDouble: 4 })).toBe(
       "invalid checkout details",
     );
   });

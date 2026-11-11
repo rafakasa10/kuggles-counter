@@ -57,7 +57,7 @@ The mic stays open for the whole game. Vosk streams continuously and finalises o
 
 ## 3. Turn assembly (both modes)
 
-Every final phrase goes to the parser (§5) and then to the **turn assembler**:
+Every final phrase goes to the parser (§5) and then to the **turn assembler** (`src/voice/assemble.ts`, a pure reducer; the app owns the grace timer and applies its effects: commit, command, ignored, too many darts). The game mode tells it whether totals are allowed and when darts end a turn (`src/voice/x01-context.ts` for X01). When a phrase has two readings, the assembler takes the darts if darts are already in the strip, else the first reading that fits the score (so "one twenty" on 100 left reads as S1 S20), and the turn stays uncertain:
 
 1. **Darts** append to the pending turn, up to 3, whether they come in one phrase or several. Extra darts are rejected with "Only 3 darts per turn".
 2. A **total** (X01 only, e.g. "one hundred") replaces any pending darts and completes the turn.

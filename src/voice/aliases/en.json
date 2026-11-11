@@ -71,6 +71,12 @@
     "sicks": "six",
     "tin": "ten"
   },
+  "nearMisses": {
+    "sixty": "sixteen",
+    "seventy": "seventeen",
+    "eighty": "eighteen",
+    "ninety": "nineteen"
+  },
   "specials": {
     "bullseye": {
       "segment": 25,
@@ -109,6 +115,10 @@
       "multiplier": 2
     },
     "double tops": {
+      "segment": 20,
+      "multiplier": 2
+    },
+    "double top": {
       "segment": 20,
       "multiplier": 2
     },

@@ -26,6 +26,11 @@ export interface AliasFile {
   readonly commands: Readonly<Record<string, readonly string[]>>;
   readonly modePhrases: Readonly<Record<string, readonly string[]>>;
   readonly fillers: readonly string[];
+  /**
+   * Numbers that can't follow a multiplier but sound like one that can ("double sixty" →
+   * D16). Used only straight after a multiplier, and the dart then needs confirming.
+   */
+  readonly nearMisses?: Readonly<Record<string, string>>;
   /** Phrases meaning "this visit scored nothing": a miss that ends the turn. */
   readonly noScore?: readonly string[];
   /** Optional word that must start a phrase in hands-free noisy-room mode. */
