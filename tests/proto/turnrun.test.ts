@@ -211,7 +211,7 @@ describe("hands-free: held turns (the first iPhone run's failures)", () => {
       end: "next",
       correct: true,
       confirmed: true,
-      doubts: ["unknown words"],
+      doubts: ["unknown words", "after a garbled phrase"],
     });
   });
 

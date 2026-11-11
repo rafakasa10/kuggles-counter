@@ -26,7 +26,8 @@ export type UncertainReason =
   | "low word confidence"
   | "unknown words"
   | "corrected number"
-  | "after a garbled phrase";
+  | "after a garbled phrase"
+  | "total after darts";
 
 export interface Heard {
   readonly result: ParseResult;
@@ -37,6 +38,10 @@ export interface Heard {
   readonly uncertain: readonly UncertainReason[];
   /** Per dart of a darts result: needs confirming. Empty for other results. */
   readonly doubtful: readonly boolean[];
+  /** The trailing next/done was heard with low confidence: the turn's end needs confirming. */
+  readonly tailDoubtful: boolean;
+  /** Per dart of a total's darts reading (totals mode, said after darts). */
+  readonly asDartsDoubtful: readonly boolean[];
   /** Lowest word confidence in the alternative used, when the engine gives one. */
   readonly minConf: number | null;
 }
@@ -54,6 +59,8 @@ const NOTHING: Heard = {
   text: "",
   uncertain: [],
   doubtful: [],
+  tailDoubtful: false,
+  asDartsDoubtful: [],
   minConf: null,
 };
 
@@ -77,32 +84,40 @@ export function parseHeard(alternatives: readonly Alternative[], aliases: AliasF
   if (result === undefined || alternative === undefined) return NOTHING;
   const allConfs = (alternative.words ?? []).map((w) => w.conf);
   const minConf = allConfs.length > 0 ? Math.min(...allConfs) : null;
-  const base = { result, text: alternative.text, minConf };
+  const base = { result, text: alternative.text, minConf, tailDoubtful: false, asDartsDoubtful: [] };
   if (index === -1) return { ...base, index: 0, uncertain: [], doubtful: [] };
 
   const threshold = options.minWordConfidence ?? DEFAULT_MIN_WORD_CONFIDENCE;
   const confs = confidences(alternative);
   const anyLow = minConf !== null && minConf < threshold;
   const notTop = index > 0;
+  const low = (span: readonly number[]) => lowAt(span, confs, anyLow, threshold);
+  const reasons = (flags: { lowWords: boolean; unknown?: boolean; guessed?: boolean }): UncertainReason[] => [
+    ...(notTop ? (["not the top alternative"] as const) : []),
+    ...(flags.lowWords ? (["low word confidence"] as const) : []),
+    ...(flags.unknown ? (["unknown words"] as const) : []),
+    ...(flags.guessed ? (["corrected number"] as const) : []),
+  ];
 
   if (result.kind === "darts") {
-    const low = result.spans.map((span) => lowAt(span, confs, anyLow, threshold));
-    const doubtful = result.darts.map((_, i) => notTop || result.unknownWords || result.guessed[i] === true || low[i] === true);
-    const uncertain: UncertainReason[] = [
-      ...(notTop ? (["not the top alternative"] as const) : []),
-      ...(low.some(Boolean) ? (["low word confidence"] as const) : []),
-      ...(result.unknownWords ? (["unknown words"] as const) : []),
-      ...(result.guessed.some(Boolean) ? (["corrected number"] as const) : []),
-    ];
-    return { ...base, index, uncertain, doubtful };
+    const lowDarts = result.spans.map(low);
+    const tailDoubtful = result.thenSpan.length > 0 && low(result.thenSpan);
+    const doubtful = result.darts.map(
+      (_, i) => notTop || result.unknownWords || result.guessed[i] === true || lowDarts[i] === true,
+    );
+    const uncertain = reasons({
+      lowWords: lowDarts.some(Boolean) || tailDoubtful,
+      unknown: result.unknownWords,
+      guessed: result.guessed.some(Boolean),
+    });
+    return { ...base, index, uncertain, doubtful, tailDoubtful };
   }
   if (result.kind === "total") {
-    const low = lowAt(result.span, confs, anyLow, threshold);
-    const uncertain: UncertainReason[] = [
-      ...(notTop ? (["not the top alternative"] as const) : []),
-      ...(low ? (["low word confidence"] as const) : []),
-    ];
-    return { ...base, index, uncertain, doubtful: [] };
+    const tailDoubtful = result.thenSpan.length > 0 && low(result.thenSpan);
+    const asDartsDoubtful = (result.asDarts?.spans ?? []).map((span) => notTop || low(span));
+    const uncertain = reasons({ lowWords: low(result.span) || tailDoubtful });
+    return { ...base, index, uncertain, doubtful: [], tailDoubtful, asDartsDoubtful };
   }
-  return { ...base, index, uncertain: notTop && result.kind === "command" ? ["not the top alternative"] : [], doubtful: [] };
+  // A command acts at once, so an unsure "yes", "no" or "next" must not count.
+  return { ...base, index, uncertain: result.kind === "command" ? reasons({ lowWords: anyLow }) : [], doubtful: [] };
 }

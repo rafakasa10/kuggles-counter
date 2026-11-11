@@ -81,7 +81,9 @@ Every final phrase goes to the parser (§5) and then to the **turn assembler** (
 
    Then:
    - Push-to-talk: the doubtful chips wait for a tap.
-   - Hands-free: a two-note tone, then the strip asks for "yes"/"correct" (commits) or "no"/"scratch that" (**removes only the doubtful darts**; the certain ones stay). A new valid phrase replaces the doubtful darts.
+   - Hands-free: a two-note tone (even with read-back off), then the strip asks for "yes"/"correct" (commits) or "no"/"scratch that". When the doubtful darts are the **last** ones, "no" removes only them and a new phrase replaces them; the certain darts stay. When a certain dart came **after** a doubtful one, its position can't be trusted (at 20 left, "S1? D10" without the S1 would wrongly be a checkout), so "no" or a new phrase **clears the turn** to be said again.
+   - A trailing "next"/"done" heard with low confidence, or a "next" right after a garbled call, also holds the turn ("no" then drops just the ending).
+   - An unsure "yes", "no" or "undo" (low confidence, or not the top alternative) is **not used**: it could commit a guess or drop a dart. An unsure "next" holds the turn.
 
 ## 4. Commands
 
@@ -103,7 +105,7 @@ Modes can add their own phrases (e.g. Bob's 27 "two hits", Around the Clock bare
 
 **Scoring mode (per X01 player: a setting plus a quick toggle in game; every other mode is darts):**
 - **Darts** (default): bare numbers are singles and **totals are never read**, so a stray "eighty" or "one hundred" is ignored. (First iPhone run, h02: a stray "eighty" scored 80.)
-- **Totals**: a phrase of plain numbers is the visit total ("sixty", "one twenty", "ton forty", "140"), and single digits are read one by one ("eight five" = 85, first run p28). A phrase with a multiplier or a special is still darts ("double sixteen", "bull", "no score"), so a totals player can call a checkout dart by dart.
+- **Totals**: a phrase of plain numbers is the visit total ("sixty", "one twenty", "ton forty", "140"), and single digits are read one by one ("eight five" = 85, first run p28; "one eight zero" = 180). A phrase with a multiplier or a special is still darts ("double sixteen", "bull", "no score"), so a totals player can call a checkout dart by dart. Once darts are in the strip, a plain number is the **next dart** ("triple twenty", "twenty" = T20 S20, not a total of 20); a plain number that can't be a dart ("forty one") replaces them as a total but waits for a yes.
 
 **Other rules beyond the brief** (bare number = single, homophones only after a multiplier, specials, totals, validation):
 - **Both engines' output.** Words (Vosk) and Web Speech's digits, letters and punctuation ("Triple 20, T20, 140!") give the same result. Digits above 20 are never darts; the digits 50 are the bull.

@@ -99,11 +99,14 @@ export class SpeechOut {
   ): void {
     const ctx = this.tones;
     const finish = this.begin(gated, onDone);
-    if (!ctx || ctx.state !== "running") {
-      this.hooks.log("tone skipped: no running audio output");
+    if (!ctx || ctx.state === "closed") {
+      this.hooks.log("tone skipped: no audio output");
       finish("error");
       return;
     }
+    // After a call, Siri or a lock iOS may suspend it; resuming outside a tap can fail,
+    // so it's also primed again by the "Mic paused" tap.
+    if (ctx.state !== "running") void ctx.resume().catch(() => undefined);
     const start = ctx.currentTime + 0.02;
     pattern.forEach((hz, i) => {
       const at = start + i * (TONE_S + TONE_GAP_S);

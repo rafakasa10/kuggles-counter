@@ -315,6 +315,8 @@ const tap = (command: "confirm" | "cancel"): Heard => ({
   text: command === "confirm" ? "(tap: confirm)" : "(tap: discard)",
   uncertain: [],
   doubtful: [],
+  tailDoubtful: false,
+  asDartsDoubtful: [],
   minConf: null,
 });
 

@@ -26,7 +26,8 @@
         { "text": "triples nineteen", "expect": "T19" },
         { "text": "treble one", "expect": "T1" },
         { "text": "triple twenty and twenty", "expect": "T20 S20" },
-        { "text": "triple nineteen then nineteen", "expect": "T19 S19" }
+        { "text": "triple nineteen then nineteen", "expect": "T19 S19" },
+        { "text": "one eight zero", "expect": "S1 S8 M", "note": "darts mode reads darts" }
       ]
     },
     {
@@ -227,7 +228,11 @@
         { "text": "double sixty", "expect": "D16?", "scoring": "totals" },
         { "text": "no score", "expect": "M", "then": "next", "scoring": "totals" },
         { "text": "twenty triple twenty", "expect": "S20 T20", "scoring": "totals" },
-        { "text": "20 25", "expect": "ignored", "scoring": "totals" }
+        { "text": "20 25", "expect": "ignored", "scoring": "totals" },
+        { "text": "one eight zero", "expect": "total 180", "scoring": "totals", "note": "zero is a digit after the first" },
+        { "text": "one zero zero", "expect": "total 100", "scoring": "totals" },
+        { "text": "eight zero", "expect": "total 80", "scoring": "totals" },
+        { "text": "zero", "expect": "total 0", "scoring": "totals" }
       ]
     },
     {

@@ -41,7 +41,15 @@ export type IgnoreReason =
 interface Tail {
   /** "next" when the phrase ended with next/done/no score: the rest of the turn is missed. */
   readonly then: "next" | null;
+  /** Positions in tokenize(text) of that ending ("done"), so its confidence can be checked. */
+  readonly thenSpan: readonly number[];
   readonly wake: boolean;
+}
+
+/** The same plain numbers read as darts (totals mode), for a total said after darts. */
+export interface DartsReading {
+  readonly darts: readonly Dart[];
+  readonly spans: readonly (readonly number[])[];
 }
 
 export type ParseResult =
@@ -60,6 +68,8 @@ export type ParseResult =
       readonly total: number;
       /** Positions in tokenize(text) the total was heard from. */
       readonly span: readonly number[];
+      /** Totals mode: the darts reading of the same words, if there is exactly one. */
+      readonly asDarts: DartsReading | null;
     } & Tail)
   | { readonly kind: "command"; readonly command: CommandName; readonly wake: boolean }
   | { readonly kind: "wake" }
@@ -189,6 +199,7 @@ function spokenTotal(words: readonly string[], v: Vocab): number | null {
   const firstValue = v.numbers.get(first);
   const base = v.totalWords.get(first);
   if (words.length === 1 && digitValue(first) !== undefined) return digitValue(first) ?? null;
+  if (words.length === 1 && firstValue === 0) return 0;
   if (base !== undefined) return plus(base, under100(words.slice(1), v), words.length - 1);
   if (firstValue === 100) return plus(100, under100(words.slice(1), v), words.length - 1);
   if (firstValue === 1 && v.numbers.get(second) === 100) return plus(100, under100(words.slice(2), v), words.length - 2);
@@ -199,11 +210,12 @@ function spokenTotal(words: readonly string[], v: Vocab): number | null {
   return under100(words, v);
 }
 
-/** Single digits read one by one: "eight five" = 85, "one four five" = 145. */
+/** Single digits read one by one: "eight five" = 85, "one four five" = 145, "one eight zero" = 180. */
 function digitByDigit(words: readonly string[], v: Vocab): number | null {
   if (words.length < 2 || words.length > 3) return null;
   const digits = words.map((w) => v.numbers.get(w));
-  if (!digits.every((d) => d !== undefined && d >= 1 && d <= 9)) return null;
+  const isDigit = (d: number | undefined, i: number) => d !== undefined && d >= (i === 0 ? 1 : 0) && d <= 9;
+  if (!digits.every(isDigit)) return null;
   return digits.reduce<number>((n, d) => n * 10 + (d ?? 0), 0);
 }
 
@@ -247,13 +259,20 @@ function parseScore(words: readonly Token[], v: Vocab, options: ParseOptions, wa
   const plain = body.map((t) => t.w);
   const unparsed = (reason: IgnoreReason) => ignored(unknown ? "unknown words" : reason, wake, words, v);
 
+  const thenSpan = words.slice(raw.length).flatMap((t) => t.at);
+  const spanOf = (p: Piece) => body.slice(p.from, p.to).flatMap((t) => t.at);
+  const found = dartsReadings(plain, v);
+
   if (options.scoring === "totals" && !miss && plain.length > 0 && plain.every((w) => isPlainNumber(w, v))) {
     const total = parseTotal(plain, v);
     if (total === null || unknown) return unparsed("not darts, a total or a command");
-    return { kind: "total", total, span: body.flatMap((t) => t.at), then, wake };
+    const only = found.length === 1 ? found[0] : undefined;
+    const asDarts = only && only.length > 0 && !only.some((p) => p.guessed)
+      ? { darts: only.map((p) => p.dart), spans: only.map(spanOf) }
+      : null;
+    return { kind: "total", total, span: body.flatMap((t) => t.at), asDarts, then, thenSpan, wake };
   }
 
-  const found = dartsReadings(plain, v);
   if (found.length > 1) return unparsed("ambiguous");
   const pieces = found[0];
   if (pieces === undefined) {
@@ -262,14 +281,14 @@ function parseScore(words: readonly Token[], v: Vocab, options: ParseOptions, wa
   }
   const extra = miss && pieces.length < DARTS_PER_TURN;
   if (pieces.length === 0 && !extra) return unparsed("not darts, a total or a command");
-  const spanOf = (p: Piece) => body.slice(p.from, p.to).flatMap((t) => t.at);
   return {
     kind: "darts",
     darts: [...pieces.map((p) => p.dart), ...(extra ? [MISS] : [])],
     guessed: [...pieces.map((p) => p.guessed), ...(extra ? [false] : [])],
-    spans: [...pieces.map(spanOf), ...(extra ? [words.slice(raw.length).flatMap((t) => t.at)] : [])],
+    spans: [...pieces.map(spanOf), ...(extra ? [thenSpan] : [])],
     unknownWords: unknown,
     then,
+    thenSpan,
     wake,
   };
 }

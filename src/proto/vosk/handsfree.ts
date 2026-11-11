@@ -166,6 +166,7 @@ export class HandsFreeRun {
     $("hf-discard").addEventListener("click", () => this.tap(false));
     $("hf-resume").addEventListener("click", () => {
       this.p.mic.primeContext(); // inside the tap
+      this.speech.primeTones(); // iOS may have suspended the tone output too
       void this.recover(true);
     });
     for (const rating of ["loud", "quiet", "silent"] as const) {
@@ -537,7 +538,7 @@ export class HandsFreeRun {
       this.finishTurn(this.run.finished);
       return;
     }
-    if (isHeld(this.run) && !isHeld(before)) this.cue(CONFIRM_TONE, "confirm cue");
+    if (isHeld(this.run) && !isHeld(before)) this.cue(CONFIRM_TONE, "confirm cue", true);
     this.renderPrompt();
   }
 
@@ -550,8 +551,9 @@ export class HandsFreeRun {
     this.afterPhrase(before);
   }
 
-  private cue(pattern: readonly number[], label: string): void {
-    if (this.readBack === "off" || this.ttsBusy || this.speech.speaking) return;
+  /** A tone, gated like speech. The confirm cue plays even with read-back off: it asks for a yes. */
+  private cue(pattern: readonly number[], label: string, always = false): void {
+    if ((!always && this.readBack === "off") || this.ttsBusy || this.speech.speaking) return;
     this.speech.tone(pattern, true, (how) => {
       if (how !== "end") this.log(`${label}: no sound`);
       this.afterReadBackUntil = performance.now() + AFTER_READBACK_MS;

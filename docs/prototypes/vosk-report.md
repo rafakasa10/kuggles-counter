@@ -93,7 +93,7 @@ The latency clock matched Vosk's word timestamps to the millisecond.
 - **Near misses after a multiplier** ("double sixty" → D16?, "triple eighty" → T18?) become guesses that wait for a yes (p04, h07, h08).
 - **`[unk]` at the start or end** is dropped and the darts wait for a yes, instead of being thrown away (h14, h09, h11).
 - **Low-confidence darts** (below 0.6) are marked one by one and wait for a yes (h01). So does the first result after a garbled darts call (h02).
-- **A held turn:** you hear a two-note tone, the strip shows the doubtful darts with "?", and you say **"yes"** (or tap ✓ Confirm) to count it, or **"no"** (or tap ✗ Discard) to drop just the "?" darts and say them again. Saying the dart again also replaces it.
+- **A held turn:** you hear a two-note tone, the strip shows the doubtful darts with "?", and you say **"yes"** (or tap ✓ Confirm) to count it, or **"no"** (or tap ✗ Discard) to drop the "?" darts and say them again. If a "?" dart isn't the last one, "no" clears the whole turn: say all of it again. An unsure "yes" or "no" is ignored, so say it clearly.
 - **Read-back** now defaults to the score only, with "a beep" or "the darts and the score" as options. The voice is always English, whatever the phone's language.
 - **Cut-off detection fixed:** a word already under way when the mic reopened had no start time and was skipped. Now any phrase starting within 300 ms of the mic reopening counts.
 - The 25 rule: "20 25" is S20 + outer bull; word forms that split two ways ("twenty twenty five") are ignored. So p03 is now "Treble twenty, twenty, one".

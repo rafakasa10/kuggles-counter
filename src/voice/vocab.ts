@@ -127,7 +127,7 @@ export function vocabOf(a: AliasFile): Vocab {
     ),
     dartsWords: new Set([
       ...Object.keys(a.multipliers),
-      ...Object.keys(a.numbers),
+      ...Object.entries(a.numbers).filter(([, n]) => n > 0).map(([w]) => w),
       ...Object.keys(a.totalWords),
       ...Object.entries(a.specials)
         .filter(([, d]) => d.segment > 0)

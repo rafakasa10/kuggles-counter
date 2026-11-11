@@ -63,6 +63,7 @@ describe("parse: result shape", () => {
         spans: [[1, 2], [3, 4], [5]],
         unknownWords: false,
         then: null,
+        thenSpan: [],
         wake: false,
       },
     );
@@ -77,13 +78,20 @@ describe("parse: result shape", () => {
     });
   });
 
-  it("gives the words of a total", () => {
+  it("gives the words of a total, and its darts reading when there is one", () => {
     expect(parse("one hundred and forty", aliases, totals)).toEqual({
       kind: "total",
       total: 140,
       span: [0, 1, 3],
+      asDarts: null,
       then: null,
+      thenSpan: [],
       wake: false,
+    });
+    expect(parse("twenty done", aliases, totals)).toMatchObject({
+      total: 20,
+      asDarts: { darts: [{ segment: 20, multiplier: 1 }], spans: [[0]] },
+      thenSpan: [1],
     });
   });
 

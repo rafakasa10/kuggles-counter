@@ -182,3 +182,25 @@ describe("parseHeard: which darts need a yes", () => {
     expect(heard.uncertain).toEqual(["low word confidence"]);
   });
 });
+
+describe("parseHeard: endings and commands", () => {
+  it("flags a low-confidence trailing done without doubting the darts", () => {
+    const heard = parseHeard([{ text: "twenty done", words: words("twenty done", [1, 0.2]) }], aliases, opts);
+    expect(heard).toMatchObject({ doubtful: [false], tailDoubtful: true, uncertain: ["low word confidence"] });
+  });
+
+  it("flags a low-confidence command", () => {
+    const heard = parseHeard([{ text: "yes", words: words("yes", [0.1]) }], aliases, opts);
+    expect(heard.uncertain).toEqual(["low word confidence"]);
+    expect(parseHeard([{ text: "yes", words: words("yes", [0.9]) }], aliases, opts).uncertain).toEqual([]);
+  });
+
+  it("doubts the darts reading of a total by its own words", () => {
+    const heard = parseHeard(
+      [{ text: "twenty one", words: words("twenty one", [1, 0.3]) }],
+      aliases,
+      { scoring: "totals", minWordConfidence: 0.6 },
+    );
+    expect(heard.asDartsDoubtful).toEqual([false, true]);
+  });
+});
