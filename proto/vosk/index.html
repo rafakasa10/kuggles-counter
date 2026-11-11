@@ -53,37 +53,45 @@
       </section>
 
       <section class="card" aria-labelledby="h-hf">
-        <h2 id="h-hf">3 · Hands-free</h2>
+        <h2 id="h-hf">3 · Hands-free: 14 turns, then 30 minutes</h2>
         <p class="small muted">
-          The mic stays open with no button. Prop the phone up by the board and step back to the oche (about 2.4 m). Say each turn the way you would in a game; pauses between darts are fine.
-          Leave it running for <b>15 minutes or more</b> for the endurance test.
+          The mic stays open with no button. Prop the phone up by the board, screen on, and step back to the oche (about 2.4 m). Say each turn as prompted:
+          some in one breath, some <b>one dart at a time</b> with pauses, plus a checkout on dart 1 and on dart 2, a bust, and "next"/"done" early.
+          Phrases that don't parse are ignored and logged. Then leave it running to reach <b>30 minutes</b> for the battery and endurance test.
         </p>
+        <div id="hf-options" class="row small">
+          <label><input type="checkbox" id="hf-readback" checked /> Read back each turn (mic muted while it speaks)</label>
+          <label><input type="checkbox" id="hf-wake" /> Require the wake word “score” (for noisy rooms)</label>
+        </div>
         <div class="row small">
           <label>Battery at start <input type="number" inputmode="numeric" min="0" max="100" id="hf-batt-start" style="width: 5em" />%</label>
           <label>at end <input type="number" inputmode="numeric" min="0" max="100" id="hf-batt-end" style="width: 5em" />%</label>
         </div>
+        <p class="small muted">iPhone Safari can't read the battery level, so type it from Settings › Battery (or the status bar).</p>
         <button class="primary" id="hf-start">Start hands-free</button>
         <p class="small" id="hf-status-idle" aria-live="polite"></p>
         <div id="hf-running" hidden style="display: grid; gap: 12px">
+          <button class="primary" id="hf-resume" hidden>⏸ Mic paused · tap to resume</button>
           <p class="small" id="hf-status"></p>
           <p class="small muted" id="hf-counts"></p>
           <p class="small muted" id="hf-progress"></p>
           <p class="prompt" id="hf-prompt" aria-live="polite"></p>
+          <p class="small" id="hf-hint"></p>
           <p class="heard muted" id="hf-partial"></p>
           <p class="heard" id="hf-heard"></p>
           <p id="hf-verdict" aria-live="polite"></p>
-          <button id="hf-resume" hidden>Mic lost: tap to resume</button>
           <div class="row">
+            <button id="hf-skip">Skip this turn</button>
             <button id="hf-redo">That didn't count: redo last turn</button>
           </div>
           <div class="row">
             <button id="hf-tts">Test speech output</button>
             <button id="hf-tts-open">Speech output, mic left open</button>
-            <button id="hf-chatter">60 s chatter test</button>
+            <button id="hf-chatter">5-minute background test</button>
             <button id="hf-stop">Stop and save</button>
           </div>
           <p class="small muted">
-            “Test speech output” is how the app will work: it stops listening while it speaks. The “mic left open” version checks whether the phone's echo
+            “Test speech output” is how the app will work: the mic is muted while it speaks. The “mic left open” version checks whether the phone's echo
             cancellation alone would stop the recogniser from hearing its own voice.
           </p>
           <div id="hf-tts-rate" hidden class="row small">
@@ -92,7 +100,7 @@
             <button id="hf-tts-quiet">Quiet (earpiece)</button>
             <button id="hf-tts-silent">Didn’t hear it</button>
           </div>
-          <p class="small muted" id="hf-chatter-status">Chatter test: talk normally (or leave the TV on) for 60 s without saying darts. Anything it picks up counts as a false trigger.</p>
+          <p class="small muted" id="hf-chatter-status">Background test: for 5 minutes, talk normally with someone <b>and</b> play music (or the TV) without calling any darts. Everything the app would have acted on counts as a false trigger, with and without the wake word.</p>
           <pre class="log" id="hf-log" aria-label="Hands-free event log"></pre>
         </div>
       </section>
@@ -100,6 +108,19 @@
       <section class="card" aria-labelledby="h-report">
         <h2 id="h-report">4 · Report</h2>
         <p class="small muted">Results are saved on this device as you go. When you're done, copy or share the report and paste it into the chat.</p>
+        <fieldset id="answers" class="small" style="border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 8px">
+          <legend>Answer these from the installed app (Home Screen)</legend>
+          <label>First open of the installed app: did iOS ask for the microphone?
+            <select data-q="perm-first"><option value="">–</option><option>asked</option><option>didn't ask</option><option>not tried</option></select></label>
+          <label>After fully closing (swipe away) and reopening it: did it ask again?
+            <select data-q="perm-relaunch"><option value="">–</option><option>asked again</option><option>didn't ask</option><option>not tried</option></select></label>
+          <label>Locking the screen for a minute during hands-free, then unlocking:
+            <select data-q="lock"><option value="">–</option><option>kept listening</option><option>paused, came back by itself</option><option>needed a tap</option><option>asked for the mic again</option><option>not tried</option></select></label>
+          <label>During the 30 minutes, did the screen stay on?
+            <select data-q="screen-on"><option value="">–</option><option>stayed on</option><option>dimmed but stayed on</option><option>turned off / locked</option><option>not tried</option></select></label>
+          <label>Did read-back ever cut off your next call?
+            <select data-q="readback-cut"><option value="">–</option><option>never</option><option>sometimes</option><option>often</option><option>read-back was off</option></select></label>
+        </fieldset>
         <label class="small" for="notes">Notes (room, noise, accent, anything odd)</label>
         <textarea id="notes" rows="3" style="font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); padding: 8px"></textarea>
         <pre class="log" id="report-summary"></pre>

@@ -17,6 +17,7 @@ import {
   emptyReport,
   loadReport,
   saveReport,
+  type HandsFreeSession,
   type PttEntry,
   type Report,
 } from "./store.ts";
@@ -198,14 +199,24 @@ new PushToTalkRun(
   () => useGrammar,
   (entry) => update((r) => ({ ...r, ptt: [...r.ptt, entry] })),
 );
-new HandsFreeRun(pipeline, (session) =>
-  update((r) => ({ ...r, handsFree: [...r.handsFree, session] })),
+// Sessions are saved provisionally while running, so replace by start time.
+const handsFree = new HandsFreeRun(
+  pipeline,
+  () => useGrammar,
+  (session) =>
+    update((r) => ({
+      ...r,
+      handsFree: [
+        ...r.handsFree.filter((h) => h.startedAt !== session.startedAt),
+        session,
+      ],
+    })),
 );
 
 // Dev-only hook for the synthetic-speech engine test (tree-shaken out of production builds).
 if (import.meta.env.DEV) {
   Object.assign(window, {
-    __voskProto: { pipeline, grammar: GRAMMAR, modelUrl: MODEL_URL },
+    __voskProto: { pipeline, handsFree, grammar: GRAMMAR, modelUrl: MODEL_URL },
   });
 }
 
@@ -252,33 +263,102 @@ function summaryText(r: Report): string {
       es.flatMap((e) => (e.latencyMs === null ? [] : [e.latencyMs])),
       50,
     );
+  const parsedLatency = ptt.flatMap((e) =>
+    typeof e.speechEndToParsedMs === "number" ? [e.speechEndToParsedMs] : [],
+  );
   lines.push(
-    `  latency (speech end → result), median: Vosk endpoint ${fmtMs(latencyOf(endpointed))} (${endpointed.length} takes) · after 1.2 s auto-stop ${fmtMs(latencyOf(autoStopped))} (${autoStopped.length} takes) · stop → finalize reply ${fmtMs(percentile(stops, 50))}`,
+    `  speech end → parsed result (word timestamps): median ${fmtMs(percentile(parsedLatency, 50))}, p90 ${fmtMs(percentile(parsedLatency, 90))} (${parsedLatency.length} takes)`,
+  );
+  lines.push(
+    `  by voice meter, median: Vosk endpoint ${fmtMs(latencyOf(endpointed))} (${endpointed.length} takes) · after 1.2 s auto-stop ${fmtMs(latencyOf(autoStopped))} (${autoStopped.length} takes) · stop → finalize reply ${fmtMs(percentile(stops, 50))}`,
   );
   const misses = ptt
     .filter((e) => !e.match)
-    .map((e) => `  ✗ ${e.id} expected “${e.expected}” heard “${e.heard}”`);
+    .map(
+      (e) =>
+        `  ✗ ${e.id} expected “${e.expected}” heard “${e.heard}” → ${e.parsed ?? "?"}`,
+    );
   lines.push(...misses);
-  r.handsFree.forEach((h, i) => {
-    lines.push(
-      `Hands-free #${i + 1} (${h.standalone ? "app" : "tab"}): ${fmtClock(h.durationS)}, turns correct ${fmtPct(h.summary.matchRate)} of ${h.summary.count}, parts/turn ${h.meanSegmentsPerTurn?.toFixed(1) ?? "–"}, latency median ${fmtMs(h.summary.medianLatencyMs)}, ignored ${h.ignored}, recoveries ${h.recoveries}, wake lock ${h.wakeLock}`,
-    );
-    if (h.tts.length)
-      lines.push(
-        `  speech output: ${h.tts.map((t) => `${t.gated ? "gated" : "mic open"}: ${t.rating ?? "?"}${t.selfHeard ? " (recogniser heard it!)" : ""}`).join(", ")}`,
-      );
-    h.chatters.forEach((c) =>
-      lines.push(
-        `  chatter${c.completed ? "" : " (stopped early)"}: ${c.falseTriggers.length} false triggers in ${c.seconds} s (${c.falseTriggers.join(" | ") || "none"})`,
-      ),
-    );
-    if (h.batteryStart !== null && h.batteryEnd !== null)
-      lines.push(
-        `  battery: ${h.batteryStart}% → ${h.batteryEnd}% over ${fmtClock(h.durationS)}`,
-      );
-  });
+  r.handsFree.forEach((h, i) => lines.push(...handsFreeLines(h, i)));
+  const answered = Object.entries(r.answers).filter(([, v]) => v);
+  if (answered.length)
+    lines.push(`Answers: ${answered.map(([k, v]) => `${k}=${v}`).join(", ")}`);
   if (r.notes) lines.push(`Notes: ${r.notes}`);
   return lines.join("\n");
+}
+
+const STYLE_GROUPS: readonly (readonly [string, (style: string) => boolean])[] =
+  [
+    ["one breath", (s) => s === "one breath"],
+    ["one at a time", (s) => s === "one at a time"],
+    ["checkout/bust early", (s) => /checkout|bust/.test(s)],
+    ["next/done early", (s) => /next|done/.test(s)],
+  ];
+
+const MIN_BATTERY_MINUTES = 10;
+
+function handsFreeLines(h: HandsFreeSession, i: number): string[] {
+  const lines: string[] = [];
+  const turns = Array.isArray(h.turns) ? h.turns : [];
+  const latencies = Array.isArray(h.latenciesMs) ? h.latenciesMs : [];
+  const flow = h.flow ?? {};
+  const rb = h.readBacks ?? {};
+  const correct = turns.filter((t) => t.correct).length;
+  const byStyle = STYLE_GROUPS.map(([label, test]) => {
+    const group = turns.filter((t) => test(t.style));
+    return `${label} ${group.filter((t) => t.correct).length}/${group.length}`;
+  }).join(", ");
+  const minutes = h.durationS / 60;
+  const tags = [
+    h.standalone ? "app" : "tab",
+    h.grammar === false ? "OPEN VOCABULARY" : "",
+    h.wakeRequired ? "wake word on" : "",
+    h.readBack ? "read-back on" : "",
+    h.completed === false ? "not stopped: last safety save" : "",
+  ].filter(Boolean);
+  lines.push(
+    `Hands-free #${i + 1} (${tags.join(", ")}): ${fmtClock(h.durationS)}, turns correct ${correct}/${turns.length} (${byStyle})`,
+  );
+  const parts = turns.map((t) => t.parts);
+  const missedReal = turns.flatMap((t) => t.ignored ?? []);
+  const dropped = turns.reduce((sum, t) => sum + (t.dropped ?? 0), 0);
+  lines.push(
+    `  parts/turn ${parts.length ? (parts.reduce((a, b) => a + b, 0) / parts.length).toFixed(1) : "–"} · ignored during turns ${missedReal.length}${missedReal.length ? ` (${missedReal.slice(0, 8).join(" | ")})` : ""} · ignored overall ${h.ignored} of ${h.results}${dropped ? ` · darts dropped after a turn ended ${dropped}` : ""}`,
+  );
+  lines.push(
+    `  speech end → parsed result: median ${fmtMs(percentile(latencies, 50))}, p90 ${fmtMs(percentile(latencies, 90))} (${latencies.length} phrases)`,
+  );
+  turns
+    .filter((t) => !t.correct)
+    .forEach((t) =>
+      lines.push(
+        `  ✗ ${t.id} ${t.style}: expected ${t.expected} (${t.expectEnd}), got ${t.heard || "nothing"} (${t.end})`,
+      ),
+    );
+  const pct = (x: number | null | undefined) =>
+    typeof x === "number" ? `${(x * 100).toFixed(1)}%` : "–";
+  lines.push(
+    `  listening: audio ${pct(flow.visibleCoverage)} while visible (${pct(flow.coverage)} overall), ${flow.dropouts ?? "–"} dropouts while visible (longest ${fmtMs(flow.longestDropoutMs ?? null)}), ${flow.hiddenDropouts ?? "–"} while hidden, mic paused shown ${h.micPausedShown}× (${fmtClock((h.micPausedMs ?? 0) / 1000)}), page hidden ${h.pageHidden}×, recoveries ${h.recoveries}, wake lock ${h.wakeLock} (released ${h.wakeLockReleases}×)`,
+  );
+  if (h.readBack)
+    lines.push(
+      `  read-back: ${rb.count ?? 0} spoken, ${rb.failed ?? 0} failed, suspected cut-offs ${rb.suspectedCutOffs ?? 0}, end event missing ${rb.safetyTimeouts ?? 0}×`,
+    );
+  const tts = Array.isArray(h.tts) ? h.tts : [];
+  if (tts.length)
+    lines.push(
+      `  speech output: ${tts.map((t) => `${t.gated ? "muted" : "mic open"}: ${t.rating ?? "?"}${t.selfHeard ? " (recogniser heard it!)" : ""}`).join(", ")}`,
+    );
+  (Array.isArray(h.chatters) ? h.chatters : []).forEach((c) =>
+    lines.push(
+      `  background ${fmtClock(c.elapsedS)}${c.completed ? "" : " (stopped early)"}: false triggers ${c.acted} without wake word (${c.elapsedS ? ((c.acted * 300) / c.elapsedS).toFixed(1) : "–"} per 5 min), ${c.actedWithWake} with it, from ${c.phrases.length} phrases${c.actedTexts.length ? ` (${c.actedTexts.slice(0, 10).join(" | ")})` : ""}`,
+    ),
+  );
+  if (h.batteryStart !== null && h.batteryEnd !== null)
+    lines.push(
+      `  battery: ${h.batteryStart}% → ${h.batteryEnd}% over ${fmtClock(h.durationS)}${minutes >= MIN_BATTERY_MINUTES ? ` = ${(((h.batteryStart - h.batteryEnd) * 30) / minutes).toFixed(1)}% per 30 min` : " (too short to work out a rate)"}`,
+    );
+  return lines;
 }
 
 function renderReport(): void {
@@ -337,6 +417,14 @@ $("reset-report").addEventListener("click", () => {
   update(() => ({ ...emptyReport(), env: report.env }));
   setText("reset-report", "Erase results");
   setText("report-status", "Results erased.");
+});
+
+document.querySelectorAll<HTMLSelectElement>("#answers select").forEach((sel) => {
+  const q = sel.dataset.q ?? "";
+  sel.value = report.answers[q] ?? "";
+  sel.addEventListener("change", () =>
+    update((r) => ({ ...r, answers: { ...r.answers, [q]: sel.value } })),
+  );
 });
 
 $("notes").addEventListener("change", (e) => {

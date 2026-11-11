@@ -1,4 +1,9 @@
 /* Shared prototype styles. Colours come from src/ui/theme/chalk.json via theme.ts. */
+
+/* The hidden attribute must win over display rules like .row and inline display:grid. */
+[hidden] {
+  display: none !important;
+}
 :root {
   --bg: #1a1f1d;
   --surface: #222926;

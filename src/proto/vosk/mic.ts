@@ -24,6 +24,7 @@ const CONSTRAINTS: MediaStreamConstraints = {
 // which Safari's audioWorklet.addModule() may refuse.
 const WORKLET_URL = `${import.meta.env.BASE_URL}worklets/capture-worklet.js`;
 const RESUME_TIMEOUT_MS = 1500;
+const OPEN_TIMEOUT_MS = 10_000;
 
 export const isHealthy = (s: MicState): boolean =>
   s.context === "running" && s.track === "live" && !s.muted;
@@ -79,7 +80,15 @@ export class MicCapture {
 
   /** Opens (or re-opens) the mic. Concurrent calls share one attempt. */
   open(): Promise<{ grantMs: number }> {
-    this.opening ??= this.doOpen().finally(() => {
+    this.opening ??= Promise.race([
+      this.doOpen(),
+      new Promise<never>((_, reject) =>
+        window.setTimeout(
+          () => reject(new Error("The microphone didn't open within 10 s.")),
+          OPEN_TIMEOUT_MS,
+        ),
+      ),
+    ]).finally(() => {
       this.opening = null;
     });
     return this.opening;

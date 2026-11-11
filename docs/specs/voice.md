@@ -1,6 +1,6 @@
 # Voice input spec
 
-Status: draft v1 (2026-11-11). It consolidates the original brief, adds **hands-free mode**, and records what was learned from the `vosk-browser` source and the `vosk-model-small-en-us-0.15` model. Items marked **[proto]** get measured by the Vosk-on-iPhone prototype before they're final.
+Status: draft v2 (2026-11-11). It consolidates the original brief, adds **hands-free mode** (v2: only fully parsed phrases count, darts gather across phrases, checkout/bust ends the turn early, mic muted while speaking, optional wake word, a clear "mic paused" state), and records what was learned from the `vosk-browser` source and the `vosk-model-small-en-us-0.15` model. Items marked **[proto]** get measured by the Vosk-on-iPhone prototype before they're final.
 
 ## 1. Engines
 
@@ -33,37 +33,44 @@ One `SpeechEngine` interface (`src/voice/engines/`), two adapters:
 2. Auto-stop once speech has started and nothing new has been recognised for **1.2 s** (setting), or after 8 s. On stop, Vosk is asked for its final result (`retrieveFinalResult()`). Web Speech is simply stopped.
 3. A new Web Speech recognition instance is created for every press.
 
-### Hands-free (new)
+### Hands-free
 The mic stays open for the whole game. Vosk streams continuously and finalises on pauses, so **no button is needed to score.**
 
 - **Start:** the *Start game* tap (or *Resume*) is the user gesture that opens the mic and resumes audio. The mic stays open until the game ends, the user pauses, or the app goes to the background.
 - **Streaming:** audio frames go to the recogniser continuously. A phrase is final when Vosk emits `result` (its own endpointing), or when the partial text hasn't changed for **800 ms** (setting), whichever comes first.
-- **Display:** the screen switches to **Distance view** automatically (big numbers, keypad collapsed to a bar). The mic key becomes a status light: *Listening*, *Paused* or *Recovering*. Tapping it pauses.
+- **Only complete phrases count.** A final phrase is acted on only if it **fully parses** into 1–3 valid darts, a valid X01 total or a command (§5). Anything else (chatter, half a phrase, `[unk]`) is **ignored silently**: no error, no sound, no change on screen. It's logged in the Voice Test Lab as *ignored*, with the transcript.
+- **Darts gather across phrases.** "Triple twenty … twenty … five" said as three separate phrases builds one turn, exactly like "triple twenty, twenty, five" in one breath (§3).
+- **Wake word (optional, off by default).** For noisy rooms. With it on, only phrases that start with **"score"** ("score, triple twenty") are acted on, or a phrase that arrives within **4 s** after a lone "score". "Score" is already a grammar word (from "no score"), so turning it on doesn't change recognition.
+- **Display:** the screen switches to **Distance view** automatically (big numbers, keypad collapsed to a bar). The mic key becomes a status light: *Listening*, *Paused* or *Mic paused*. Tapping it pauses.
 - **Web Speech engine:** `continuous = true` and auto-restart on `end`, with a **new instance on every restart**. It feeds the same turn assembler.
 - **Pause / resume:** "stop listening" or a tap pauses. Resuming is a tap; voice resume is **[proto]**, because it means keeping a minimal listener running.
-- **Auto-pause:** after 15 minutes with no darts, to save battery. **[proto]** measures battery drain per hour.
-- **Interruptions:** handled when the page goes hidden or visible, when the audio context reports `interrupted` or `suspended` (iOS), and when the mic track ends. Recovery:
+- **Auto-pause:** after 15 minutes with no darts, to save battery. **[proto]** measures battery drain per 30 minutes.
+- **Back in the foreground:** when the page becomes visible again, the app reopens the mic by itself:
   - resume the audio context
   - re-acquire the mic if its track ended
   - recreate the recogniser if needed
-  - show *Recovering* until audio flows again
+  - re-request the Wake Lock
 
-  **[proto]** checks calls, Siri, screen lock and switching apps.
-- **Screen:** a screen Wake Lock is held while hands-free is active and re-requested on `visibilitychange`. **[proto]** checks whether iOS honours it in an installed app.
+  The same recovery runs when the audio context reports `interrupted` or `suspended` (iOS) or the mic track ends.
+- **"Mic paused" state:** if recovery fails, or iOS cuts the mic (a call, Siri, screen lock) and audio stops flowing for more than 1 s, the app says so plainly. A full-width **"Mic paused · tap to resume"** banner shows in the bottom bar, and nothing is scored until audio flows again. The tap is the user gesture iOS needs. **[proto]** checks calls, Siri, screen lock and switching apps.
+- **Screen:** a screen Wake Lock is held for the whole game (feature-detected) and re-requested on `visibilitychange`. **[proto]** checks whether iOS honours it in an installed app, i.e. whether the screen stays on and listening survives for 30 minutes.
 
 ## 3. Turn assembly (both modes)
 
 Every final phrase goes to the parser (§5) and then to the **turn assembler**:
 
-1. **Darts** append to the pending turn, up to 3. Extra darts are rejected with "Only 3 darts per turn".
+1. **Darts** append to the pending turn, up to 3, whether they come in one phrase or several. Extra darts are rejected with "Only 3 darts per turn".
 2. A **total** (X01 only, e.g. "one hundred") replaces any pending darts and completes the turn.
-3. **Commands** act immediately (§4).
-4. The turn is **complete** when it has 3 darts, the remaining score hits 0 (checkout), the turn busts, or the player says "next"/"done" (remaining darts count as misses).
+3. **Commands** act immediately (§4). A trailing "next"/"done" in the same phrase as darts ("twenty, done") counts too.
+4. The turn is **complete** when:
+   - it has 3 darts, or
+   - the player says "next"/"done" (remaining darts count as misses), or
+   - **the darts so far end the turn: a checkout or a bust in X01**, or whatever ends a turn in the current mode (e.g. Shanghai's S+D+T, finishing Around the Clock). This happens **immediately, even after 1 or 2 darts.** Any further darts in the same phrase are dropped.
 5. On completion the chips and total show with a **1.5 s grace countdown** (setting), then the turn commits. During the countdown:
    - "no", "cancel" or "undo" cancels it
    - "yes" commits it at once
    - tapping a chip edits that dart
-6. **An incomplete turn never auto-commits.** It waits on screen for more darts or for "next". That suits players who call each dart as they throw it, as well as players who call all three at the end.
+6. **Otherwise an incomplete turn never auto-commits.** With 1–2 darts and no checkout or bust, it waits on screen for more darts or for "next". That suits players who call each dart as they throw it, as well as players who call all three at the end.
 7. **Low confidence** (any word below the confidence threshold, or the winning alternative isn't the top one) means **no auto-commit**:
    - Push-to-talk: the chips are dashed and wait for a tap.
    - Hands-free: the strip asks for a spoken "yes"/"correct" to commit or "no"/"scratch that" to discard. A new valid turn replaces the held one.
@@ -89,12 +96,15 @@ Modes can add their own phrases (e.g. Bob's 27 "two hits", Around the Clock bare
 **Recogniser alternatives:** try each alternative in order and take the first that parses into 1–3 valid darts (or a valid total or command). With Vosk's restricted grammar there's usually one alternative. With Web Speech there are up to 5.
 
 **Noise rejection (matters most in hands-free):**
-- Ignore a phrase that is mostly `[unk]`, has no darts words, or leaves unparsed words that aren't fillers ("er", "um", "and", "then").
+- A phrase is acted on only if **every** word is used by the parse (fillers like "er", "um", "and", "then" excepted). A phrase that is mostly `[unk]`, has no darts words, or leaves any other word unparsed is ignored.
+- Invalid darts make the whole phrase invalid ("double" on its own, "triple bull", a fourth dart). Note that "triple twenty five" is valid: it parses as T20 then 5, because "twenty five" means the outer bull only when it's the whole phrase.
+- Homophones count only straight after a multiplier ("triple for" = T4). A lone "for" or "to" is ignored, because those words are common in conversation.
 - Ignored phrases are **not** shown as errors. They are logged to the Voice Test Lab as *ignored*, with the transcript.
+- The prototype uses a small stand-in acceptor (`src/proto/vosk/accept.ts`) to count false triggers by these rules. Its test cases live in `tests/fixtures/proto-accept-cases.json`, ready to fold into the Phase 2 fixture table.
 
 ## 6. Speech output (caller / read-back)
 
-- **No overlap:** before speaking, stop feeding audio to the recogniser and drop its partial result. Resume **300 ms after** the utterance ends. In hands-free the mic stays open (no re-permission) but its audio is gated.
+- **The app never hears itself:** before speaking (read-back or caller), the mic is **muted** for the recogniser: stop feeding audio to it and drop its partial result. Resume **300 ms after** the utterance ends, with a safety timeout in case `speechSynthesis` never fires `end` (unreliable on iOS). In hands-free the mic track stays open (no re-permission); only its audio is gated. If the player talks while the app is speaking, that speech is lost, so read-back stays short ("eighty", "bust", "game shot"). **[proto]** counts how often that happens.
 - **Echo cancellation and noise suppression** are on (`getUserMedia` constraints).
 - **[proto] iOS audio routing:** while the mic is open, iOS may play speech through the quiet earpiece instead of the loudspeaker. The prototype checks this, and the fallback (briefly releasing the mic during speech) gets decided from the result.
 
@@ -112,14 +122,15 @@ As in the brief:
 
 ## 8. What the prototype must answer before this spec is final
 
-1. Mic permission in an installed iOS app: granted once, or asked every launch?
+1. Mic permission in an installed iOS app: granted once, or asked every launch, after a relaunch, after a screen lock?
 2. Model download time on Wi-Fi and 4G, and the cached load time on second launch.
-3. Latency from the end of speech to the final result (push-to-talk and hands-free).
+3. Latency from the **end of speech to the parsed result** (push-to-talk and hands-free), timed from Vosk's word timestamps rather than a loudness meter, so background music doesn't skew it.
 4. Accuracy on the darts phrase list, with the restricted grammar.
-5. How often one spoken turn is split into several results.
-6. Hands-free over 15+ minutes: does recognition keep running, does Wake Lock hold, and what's the battery drain?
-7. Interruption recovery (call, Siri, lock, app switch).
-8. Speech output volume and routing while the mic is open.
-9. False triggers from background chatter in hands-free.
+5. How often one spoken turn is split into several results, and whether darts called **one at a time with pauses** assemble into the right turn.
+6. Whether a **checkout or bust on dart 1 or 2** ends the turn straight away.
+7. Hands-free for 30 minutes in the **installed app with the screen on**: does audio keep flowing, does Wake Lock hold, and what's the **battery drain per 30 minutes**?
+8. Interruption recovery (call, Siri, lock, app switch), and whether the "mic paused" state shows when it should.
+9. Speech output volume and routing while the mic is open, and how often the player talks over the read-back.
+10. **False triggers** during 5 minutes of background conversation and music, with and without the wake word. Also false negatives: real darts that were ignored.
 
 If Vosk falls short on 1–4, the report proposes the best free on-device alternative (a candidate is `sherpa-onnx` WASM streaming models) instead of switching silently.

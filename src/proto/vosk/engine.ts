@@ -3,6 +3,13 @@ import type {
   ModelMessage,
   RecognizerMessage,
 } from "vosk-browser/dist/interfaces";
+import {
+  emptyClock,
+  recordFed,
+  speechEndAt,
+  speechStartAt,
+  type StreamClock,
+} from "./clock.ts";
 
 export interface VoskWord {
   readonly word: string;
@@ -16,6 +23,10 @@ export interface VoskResult {
   readonly words: readonly VoskWord[];
   /** performance.now() when the result reached the main thread */
   readonly at: number;
+  /** performance.now() when the last real word ended (from Vosk's word timestamps), or null. */
+  readonly speechEndAt: number | null;
+  /** performance.now() when the first word, [unk] included, started, or null. */
+  readonly speechStartAt: number | null;
 }
 
 export interface LoadStats {
@@ -37,6 +48,9 @@ export class VoskEngine {
   private recognizer: KaldiRecognizer | null = null;
   private sampleRate = 0;
   private grammar: string | undefined;
+  private clock: StreamClock = emptyClock();
+  /** Bumped on every new recogniser, so late messages from a removed one are dropped. */
+  private generation = 0;
   onResult: (r: VoskResult) => void = () => {};
   onPartial: (text: string, at: number) => void = () => {};
   onError: (message: string) => void = () => {};
@@ -100,20 +114,27 @@ export class VoskEngine {
     this.recognizer?.remove();
     this.sampleRate = sampleRate;
     this.grammar = grammar;
+    this.clock = emptyClock();
+    this.generation += 1;
+    const generation = this.generation;
+    const current = () => generation === this.generation;
     const rec = grammar
       ? new this.model.KaldiRecognizer(sampleRate, grammar)
       : new this.model.KaldiRecognizer(sampleRate);
     rec.setWords(true);
     rec.on("result", (m: RecognizerMessage) => {
-      if (m.event === "result")
-        this.onResult({
-          text: m.result.text ?? "",
-          words: m.result.result ?? [],
-          at: performance.now(),
-        });
+      if (m.event !== "result" || !current()) return;
+      const words = m.result.result ?? [];
+      this.onResult({
+        text: m.result.text ?? "",
+        words,
+        at: performance.now(),
+        speechEndAt: speechEndAt(this.clock, words, sampleRate),
+        speechStartAt: speechStartAt(this.clock, words, sampleRate),
+      });
     });
     rec.on("partialresult", (m: RecognizerMessage) => {
-      if (m.event === "partialresult")
+      if (m.event === "partialresult" && current())
         this.onPartial(m.result.partial ?? "", performance.now());
     });
     rec.on("error", (m: RecognizerMessage) => {
@@ -128,8 +149,15 @@ export class VoskEngine {
       this.createRecognizer(this.sampleRate, this.grammar);
   }
 
-  feed(samples: Float32Array, sampleRate: number): void {
-    this.recognizer?.acceptWaveformFloat(samples, sampleRate);
+  /** Feeds audio; `at` is when the chunk arrived (its last sample), for latency timing. */
+  feed(
+    samples: Float32Array,
+    sampleRate: number,
+    at: number = performance.now(),
+  ): void {
+    if (!this.recognizer) return;
+    this.recognizer.acceptWaveformFloat(samples, sampleRate);
+    this.clock = recordFed(this.clock, samples.length, at);
   }
 
   /** Asks the recogniser to emit whatever it has as a final result now. */

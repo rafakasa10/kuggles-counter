@@ -9,7 +9,7 @@ The name is a placeholder. No paid APIs, no accounts, no backend: a static site 
 | Phase | State |
 |---|---|
 | 0 · Product decisions, screen map, visual direction | ✅ approved: direction **Chalk** ([docs/product/screens.md](docs/product/screens.md), [docs/design/chalk.md](docs/design/chalk.md)) |
-| 1 · Vosk-on-iPhone prototype | 🔄 built and tested on desktop; waiting for deploy and on-device results ([docs/prototypes/vosk-report.md](docs/prototypes/vosk-report.md)) |
+| 1 · Vosk-on-iPhone prototype | 🔄 built and tested on desktop; waiting for on-device results ([docs/prototypes/vosk-report.md](docs/prototypes/vosk-report.md)) |
 | 2 · Parser + X01 engine (test-first) | next |
 | 3 · Playable X01 with voice + Voice Test Lab | |
 | 4 · Remaining game modes | |

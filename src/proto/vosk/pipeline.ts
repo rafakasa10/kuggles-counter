@@ -1,5 +1,6 @@
 import { MicCapture, VoiceActivity, type AudioChunk } from "./mic.ts";
 import { VoskEngine, type VoskResult } from "./engine.ts";
+import { GAP_MS } from "./flow.ts";
 
 type ResultListener = (r: VoskResult) => void;
 type PartialListener = (text: string, at: number) => void;
@@ -15,6 +16,10 @@ export class Pipeline {
   readonly engine = new VoskEngine();
   readonly mic: MicCapture;
   onLevel: (level: number, voiced: boolean) => void = () => {};
+  /** performance.now() of the last mic chunk, gated or not: shows whether audio still flows. */
+  lastChunkAt = 0;
+  /** Called when mic chunks resume after a gap longer than GAP_MS (from, to: chunk times). */
+  onGap: (fromAt: number, toAt: number) => void = () => {};
   private owner: Owner | null = null;
   private gate = false;
   private resultListener: ResultListener | null = null;
@@ -72,10 +77,18 @@ export class Pipeline {
     this.partialListener = onPartial;
   }
 
+  get gateOpen(): boolean {
+    return this.gate;
+  }
+
   private handleChunk(chunk: AudioChunk): void {
+    const previous = this.lastChunkAt;
+    this.lastChunkAt = chunk.at;
+    if (previous > 0 && chunk.at - previous > GAP_MS)
+      this.onGap(previous, chunk.at);
     const voiced = this.vad.update(chunk);
     this.onLevel(this.vad.level, voiced);
     if (this.gate && this.engine.ready)
-      this.engine.feed(chunk.samples, this.mic.sampleRate);
+      this.engine.feed(chunk.samples, this.mic.sampleRate, chunk.at);
   }
 }

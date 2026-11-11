@@ -1,6 +1,6 @@
 import type { EnvSnapshot } from "./env.ts";
 import type { LoadStats } from "./engine.ts";
-import type { RunSummary } from "./score.ts";
+import type { TurnRecord } from "./turnrun.ts";
 
 export interface LaunchEntry {
   readonly at: string;
@@ -40,18 +40,10 @@ export interface PttEntry {
   readonly stopToResultMs: number | null;
   readonly finalizeHadText: boolean;
   readonly grammar: boolean;
-}
-
-export interface HandsFreeGroup {
-  readonly id: string;
-  readonly expected: string;
-  readonly heard: string;
-  readonly exact: boolean;
-  readonly match: boolean;
-  readonly wer: number;
-  readonly segments: number;
-  /** End of speech → the turn's last result (snapshotted per result). */
-  readonly latencyMs: number | null;
+  /** What the acceptor made of the take, e.g. "T12 T12 S8", "total 140", "ignored (…)". */
+  readonly parsed: string;
+  /** End of speech (Vosk word timestamps) → parsed result. */
+  readonly speechEndToParsedMs: number | null;
 }
 
 export interface TtsCheck {
@@ -64,25 +56,68 @@ export interface TtsCheck {
 }
 
 export interface ChatterRun {
-  readonly seconds: number;
-  readonly falseTriggers: readonly string[];
-  readonly ignored: number;
+  readonly plannedS: number;
+  readonly elapsedS: number;
   readonly completed: boolean;
+  /** Every final phrase with words that the recogniser produced during the test. */
+  readonly phrases: readonly string[];
+  /** Phrases the app would have acted on: with the wake word off, and with it on. */
+  readonly acted: number;
+  readonly actedWithWake: number;
+  readonly kinds: Readonly<Record<string, number>>;
+  readonly actedTexts: readonly string[];
+}
+
+export interface FlowStats {
+  /** Share of the session with mic audio arriving, 0–1. */
+  readonly coverage: number | null;
+  /** The same, leaving out time lost while the page was hidden (screen locked, app switched). */
+  readonly visibleCoverage: number | null;
+  /** Dropouts while the page was visible: the ones that matter for "screen on". */
+  readonly dropouts: number;
+  readonly hiddenDropouts: number;
+  /** Longest dropout while visible. */
+  readonly longestDropoutMs: number | null;
+}
+
+export interface ReadBackStats {
+  /** Read-backs that finished normally. */
+  readonly count: number;
+  /** Read-backs that errored or never reported their end. */
+  readonly failed: number;
+  /** The first phrase after a read-back didn't parse: the player was probably cut off. */
+  readonly suspectedCutOffs: number;
+  /** Times speechSynthesis never reported its end and the safety timer reopened the mic. */
+  readonly safetyTimeouts: number;
 }
 
 export interface HandsFreeSession {
   readonly startedAt: string;
+  /** false: a safety save taken mid-session (the page closed before Stop). */
+  readonly completed: boolean;
   readonly standalone: boolean;
+  /** true: darts grammar; false: open vocabulary. */
+  readonly grammar: boolean;
   readonly durationS: number;
+  readonly wakeRequired: boolean;
+  readonly readBack: boolean;
+  /** Final phrases with words. */
   readonly results: number;
+  /** Final phrases the acceptor ignored. */
   readonly ignored: number;
   readonly finalizedByPause: number;
-  readonly events: readonly string[];
+  readonly turns: readonly TurnRecord[];
+  /** End of speech → parsed result for every phrase that parsed. */
+  readonly latenciesMs: readonly number[];
+  readonly flow: FlowStats;
+  readonly micPausedShown: number;
+  readonly micPausedMs: number;
+  readonly pageHidden: number;
   readonly recoveries: number;
   readonly wakeLock: string;
-  readonly groups: readonly HandsFreeGroup[];
-  readonly summary: RunSummary;
-  readonly meanSegmentsPerTurn: number | null;
+  readonly wakeLockReleases: number;
+  readonly readBacks: ReadBackStats;
+  readonly events: readonly string[];
   readonly tts: readonly TtsCheck[];
   readonly chatters: readonly ChatterRun[];
   readonly batteryStart: number | null;
@@ -90,31 +125,43 @@ export interface HandsFreeSession {
 }
 
 export interface Report {
-  readonly version: 2;
+  readonly version: 3;
   readonly env: EnvSnapshot | null;
   readonly launches: readonly LaunchEntry[];
   readonly modelLoads: readonly ModelLoadEntry[];
   readonly micGrants: readonly MicGrantEntry[];
   readonly ptt: readonly PttEntry[];
   readonly handsFree: readonly HandsFreeSession[];
+  /** Answers to the manual questions (permission prompts, screen on), keyed by question id. */
+  readonly answers: Readonly<Record<string, string>>;
   readonly notes: string;
 }
 
-const KEY = "kc-proto-vosk-report-v2";
+const KEY = "kc-proto-vosk-report-v3";
 
 export const emptyReport = (): Report => ({
-  version: 2,
+  version: 3,
   env: null,
   launches: [],
   modelLoads: [],
   micGrants: [],
   ptt: [],
   handsFree: [],
+  answers: {},
   notes: "",
 });
 
 const arrayOr = <T>(value: unknown): readonly T[] =>
   Array.isArray(value) ? (value as T[]) : [];
+
+const stringRecord = (value: unknown): Readonly<Record<string, string>> =>
+  typeof value === "object" && value !== null
+    ? Object.fromEntries(
+        Object.entries(value).filter(
+          (e): e is [string, string] => typeof e[1] === "string",
+        ),
+      )
+    : {};
 
 /** Reads the saved report; anything malformed falls back to empty instead of crashing the page. */
 export function loadReport(): Report {
@@ -125,12 +172,12 @@ export function loadReport(): Report {
     if (
       typeof parsed !== "object" ||
       parsed === null ||
-      (parsed as { version?: unknown }).version !== 2
+      (parsed as { version?: unknown }).version !== 3
     )
       return emptyReport();
     const p = parsed as Record<string, unknown>;
     return {
-      version: 2,
+      version: 3,
       env:
         typeof p.env === "object" && p.env !== null
           ? (p.env as EnvSnapshot)
@@ -140,6 +187,7 @@ export function loadReport(): Report {
       micGrants: arrayOr<MicGrantEntry>(p.micGrants),
       ptt: arrayOr<PttEntry>(p.ptt),
       handsFree: arrayOr<HandsFreeSession>(p.handsFree),
+      answers: stringRecord(p.answers),
       notes: typeof p.notes === "string" ? p.notes : "",
     };
   } catch {

@@ -1,3 +1,6 @@
+import en from "../../voice/aliases/en.json";
+import type { AliasFile } from "../../voice/grammar.ts";
+import { accept, describeAccepted } from "./accept.ts";
 import type { Pipeline } from "./pipeline.ts";
 import type { VoskResult } from "./engine.ts";
 import { isHealthy } from "./mic.ts";
@@ -11,6 +14,7 @@ const SILENCE_MS = 1200;
 const MAX_MS = 8000;
 const FINAL_WAIT_MS = 2500;
 const ADVANCE_MS = 900;
+const ALIASES = en as AliasFile;
 
 /** Push-to-talk accuracy run: tap, say the prompt, auto-stop on silence, score it. */
 export class PushToTalkRun {
@@ -26,6 +30,7 @@ export class PushToTalkRun {
   private confs: number[] = [];
   private lastResultAt: number | null = null;
   private lastResultLatency: number | null = null;
+  private lastSpeechEndAt: number | null = null;
   private endpointedBeforeStop = false;
   private segments = 0;
   private monitor: number | undefined;
@@ -115,6 +120,7 @@ export class PushToTalkRun {
     this.confs = [];
     this.lastResultAt = null;
     this.lastResultLatency = null;
+    this.lastSpeechEndAt = null;
     this.endpointedBeforeStop = false;
     this.segments = 0;
     this.p.setGate("ptt", true);
@@ -163,6 +169,7 @@ export class PushToTalkRun {
     this.texts = [...this.texts, r.text];
     this.confs = [...this.confs, ...r.words.map((w) => w.conf)];
     this.lastResultAt = r.at;
+    this.lastSpeechEndAt = r.speechEndAt ?? this.lastSpeechEndAt;
     this.lastResultLatency =
       lastVoice !== null && r.at >= lastVoice
         ? Math.round(r.at - lastVoice)
@@ -182,6 +189,13 @@ export class PushToTalkRun {
     if (!phrase || stopAt === null) return;
     const heard = this.texts.join(" ");
     const c = compare(phrase.expect, heard, SYNONYMS);
+    const parseStart = performance.now();
+    const parsed = describeAccepted(accept(heard, ALIASES));
+    const parseMs = performance.now() - parseStart;
+    const speechEndToParsedMs =
+      this.lastResultAt !== null && this.lastSpeechEndAt !== null
+        ? Math.round(this.lastResultAt + parseMs - this.lastSpeechEndAt)
+        : null;
     const entry: PttEntry = {
       id: phrase.id,
       expected: phrase.expect,
@@ -197,13 +211,15 @@ export class PushToTalkRun {
         this.finalAt !== null ? Math.round(this.finalAt - stopAt) : null,
       finalizeHadText: this.finalHadText,
       grammar: this.useGrammar(),
+      parsed,
+      speechEndToParsedMs,
     };
     this.record(entry);
     setText("ptt-partial", "");
     setText("ptt-heard", heard ? `Heard: “${heard}”` : "Heard nothing.");
     setText(
       "ptt-verdict",
-      `${c.match ? (c.exact ? "✓ Match" : "✓ Same meaning") : "✗ Mismatch"} · speech end → result ${fmtMs(entry.latencyMs)}${entry.endpointedBeforeStop ? " (Vosk endpoint)" : " (after auto-stop)"}${entry.segments > 1 ? ` · split into ${entry.segments}` : ""}`,
+      `${c.match ? (c.exact ? "✓ Match" : "✓ Same meaning") : "✗ Mismatch"} · parsed ${parsed} · speech end → parsed ${fmtMs(entry.speechEndToParsedMs)}${entry.endpointedBeforeStop ? " (Vosk endpoint)" : " (after auto-stop)"}${entry.segments > 1 ? ` · split into ${entry.segments}` : ""}`,
     );
     $("ptt-verdict").className = c.match ? "ok" : "bad";
     if (c.match)
