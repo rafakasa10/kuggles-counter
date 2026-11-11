@@ -27,7 +27,8 @@ export type UncertainReason =
   | "unknown words"
   | "corrected number"
   | "after a garbled phrase"
-  | "total after darts";
+  | "total after darts"
+  | "more than 3 darts";
 
 export interface Heard {
   readonly result: ParseResult;

@@ -296,16 +296,46 @@ describe("assemble: doubtful darts wait for yes / no", () => {
     expect(no.turn).toMatchObject({ end: null, uncertain: [] });
   });
 
-  it("a new phrase replaces the doubtful darts and keeps the certain ones", () => {
+  it("no, then the right dart, keeps the certain darts", () => {
     const r = say(
+      at(501),
+      "triple twenty",
+      "twenty",
+      lowConf("five", 0),
+      "no",
+      "five",
+    );
+    expect(strip(r.turn)).toBe("T20 S20 S5");
+    expect(canAutoCommit(r.turn)).toBe(true);
+  });
+
+  it("a new darts phrase replaces the whole held turn (the turn said again)", () => {
+    const again = say(
+      at(501),
+      "triple twenty",
+      "twenty",
+      lowConf("five", 0),
+      "triple twenty twenty five",
+    );
+    expect(strip(again.turn)).toBe("T20 S20 S5?"); // "twenty five" splits two ways: ignored, the held turn stays
+    const full = say(
+      at(501),
+      "triple twenty",
+      "twenty",
+      lowConf("five", 0),
+      "triple twenty twenty one",
+    );
+    expect(strip(full.turn)).toBe("T20 S20 S1");
+    expect(canAutoCommit(full.turn)).toBe(true);
+    const part = say(
       at(501),
       "triple twenty",
       "twenty",
       lowConf("five", 0),
       "five",
     );
-    expect(strip(r.turn)).toBe("T20 S20 S5");
-    expect(canAutoCommit(r.turn)).toBe(true);
+    expect(strip(part.turn)).toBe("S5");
+    expect(part.turn.end).toBeNull();
   });
 
   it("holds a near-miss guess (iPhone h08)", () => {
@@ -324,7 +354,7 @@ describe("assemble: doubtful darts wait for yes / no", () => {
     expect(
       say(at(501), "[unk] twenty", "dub", "done", "yes").effects.at(-1),
     ).toMatchObject({ kind: "commit" });
-    const repeated = say(at(501), "[unk] twenty", "done", "twenty");
+    const repeated = say(at(501), "[unk] twenty", "done", "twenty done");
     expect(strip(repeated.turn)).toBe("S20");
     expect(repeated.turn.end).toBe("next");
     expect(canAutoCommit(repeated.turn)).toBe(true);
@@ -456,14 +486,25 @@ describe("assemble: commands and ignored phrases", () => {
 
 describe("assemble: pre-push review regressions (no silent wrong scores)", () => {
   it("h11 at 57: a doubtful first dart, then a certain one, then the first again never commits out of order", () => {
-    const r = say(at(57), lowConf("seventeen", 0), "double twenty", "seventeen");
+    const r = say(
+      at(57),
+      lowConf("seventeen", 0),
+      "double twenty",
+      "seventeen",
+    );
     expect(r.effects.some((e) => e.kind === "commit")).toBe(false);
     expect(strip(r.turn)).toBe("S17");
     expect(r.turn.end).toBeNull();
     const yes = say(at(57), lowConf("seventeen", 0), "double twenty", "yes");
     expect(yes.effects.at(-1)).toEqual({
       kind: "commit",
-      visit: { kind: "darts", darts: [{ segment: 17, multiplier: 1 }, { segment: 20, multiplier: 2 }] },
+      visit: {
+        kind: "darts",
+        darts: [
+          { segment: 17, multiplier: 1 },
+          { segment: 20, multiplier: 2 },
+        ],
+      },
     });
   });
 
@@ -471,27 +512,93 @@ describe("assemble: pre-push review regressions (no silent wrong scores)", () =>
     const held = say(at(20), "[unk] one", "double ten");
     expect(held.turn).toMatchObject({ end: "early" });
     expect(strip(held.turn)).toBe("S1? D10");
-    expect(say(at(20), "[unk] one", "double ten", "no").turn).toEqual(EMPTY_TURN);
+    expect(say(at(20), "[unk] one", "double ten", "no").turn).toEqual(
+      EMPTY_TURN,
+    );
     const again = say(at(20), "[unk] one", "double ten", "one");
     expect(strip(again.turn)).toBe("S1");
     expect(again.effects.some((e) => e.kind === "commit")).toBe(false);
   });
 
   it("holds next after a garbled call", () => {
-    const r = say(at(501), "triple twenty", "triple twenty triple bull", "next");
-    expect(r.turn).toMatchObject({ end: "next", uncertain: ["after a garbled phrase"] });
+    const r = say(
+      at(501),
+      "triple twenty",
+      "triple twenty triple bull",
+      "next",
+    );
+    expect(r.turn).toMatchObject({
+      end: "next",
+      uncertain: ["after a garbled phrase"],
+    });
     expect(canAutoCommit(r.turn)).toBe(false);
   });
 
   it("holds a turn whose trailing 'done' was heard with low confidence; no drops the ending only", () => {
     const r = say(at(501), lowConf("twenty done", 1));
-    expect(r.turn).toMatchObject({ end: "next", doubtful: [false], uncertain: ["low word confidence"] });
+    expect(r.turn).toMatchObject({
+      end: "next",
+      doubtful: [false],
+      uncertain: ["low word confidence"],
+    });
     expect(canAutoCommit(r.turn)).toBe(false);
     const no = say(at(501), lowConf("twenty done", 1), "no");
-    expect(no.turn).toMatchObject({ darts: [{ segment: 20, multiplier: 1 }], end: null, uncertain: [] });
-    const one = say(at(501), lowConf("twenty done", 1), "one");
+    expect(no.turn).toMatchObject({
+      darts: [{ segment: 20, multiplier: 1 }],
+      end: null,
+      uncertain: [],
+    });
+    const one = say(at(501), lowConf("twenty done", 1), "no", "one");
     expect(strip(one.turn)).toBe("S20 S1");
-    expect(one.turn.end).toBe("next");
+    expect(one.turn.end).toBeNull();
+  });
+
+  it("verification probes: none of these commit without a yes", () => {
+    const commits = (r: Run) =>
+      r.effects.some((e) => e.kind === "commit") || canAutoCommit(r.turn);
+    // At 57, a doubtful D20, then the whole turn said again: the checkout, not S17 S17 D20.
+    const again = say(
+      at(57),
+      lowConf("seventeen double twenty", 2),
+      "seventeen double twenty",
+    );
+    expect(strip(again.turn)).toBe("S17 D20");
+    expect(again.turn.end).toBe("early");
+    // A doubtful T19, then the full call again: T20 T20 T19, not T20 T20 T20 from dropped darts.
+    const full = say(
+      at(501),
+      lowConf("triple twenty triple twenty nineteen", 4),
+      "triple twenty triple twenty triple nineteen",
+    );
+    expect(strip(full.turn)).toBe("T20 T20 T19");
+    // An unsure next at the start, then the turn: no fake miss as dart 1.
+    const next = say(
+      at(501),
+      lowConf("next", 0),
+      "triple twenty triple twenty triple twenty",
+    );
+    expect(strip(next.turn)).toBe("T20 T20 T20");
+    expect(say(at(501), lowConf("next", 0), "no").turn).toEqual(EMPTY_TURN);
+    // A low-confidence done, then "twenty done": S20, not S20 S20.
+    expect(
+      strip(say(at(501), lowConf("twenty done", 1), "twenty done").turn),
+    ).toBe("S20");
+    // Totals mode: a held darts turn, then a plain number, is a dart, not a certain total of 19.
+    const totals = sayTotals(
+      at(501),
+      lowConf("triple twenty triple twenty nineteen", 4),
+      "nineteen",
+    );
+    expect(strip(totals.turn)).toBe("S19");
+    expect(commits(totals)).toBe(false);
+    // Totals mode: "one twenty" after darts could be a total of 120, so it waits.
+    const ambiguous = sayTotals(at(501), "triple twenty", "one twenty");
+    expect(strip(ambiguous.turn)).toBe("T20 S1? S20?");
+    expect(commits(ambiguous)).toBe(false);
+    // Four darts across phrases: held, not auto-committed with the extra dropped.
+    const four = say(at(501), "triple twenty triple twenty", "twenty twenty");
+    expect(four.turn.uncertain).toEqual(["more than 3 darts"]);
+    expect(commits(four)).toBe(false);
   });
 
   it("ignores an unsure yes, no or undo, and holds an unsure next", () => {
@@ -499,10 +606,15 @@ describe("assemble: pre-push review regressions (no silent wrong scores)", () =>
     for (const word of ["yes", "no", "undo"]) {
       const r = feed(at(501), "darts", held, [lowConf(word, 0)]);
       expect(r.turn, word).toEqual(held);
-      expect(r.effects, word).toEqual([{ kind: "notUsed", text: word, reason: "not sure what was said" }]);
+      expect(r.effects, word).toEqual([
+        { kind: "notUsed", text: word, reason: "not sure what was said" },
+      ]);
     }
     const next = say(at(501), "triple twenty", lowConf("next", 0));
-    expect(next.turn).toMatchObject({ end: "next", uncertain: ["low word confidence"] });
+    expect(next.turn).toMatchObject({
+      end: "next",
+      uncertain: ["low word confidence"],
+    });
     expect(canAutoCommit(next.turn)).toBe(false);
   });
 
@@ -516,7 +628,11 @@ describe("assemble: pre-push review regressions (no silent wrong scores)", () =>
 
   it("totals mode: a total that can't be darts, said after darts, waits for a yes", () => {
     const r = sayTotals(at(100), "triple twenty", "forty one");
-    expect(r.turn).toMatchObject({ total: 41, end: "total", uncertain: ["total after darts"] });
+    expect(r.turn).toMatchObject({
+      total: 41,
+      end: "total",
+      uncertain: ["total after darts"],
+    });
     expect(canAutoCommit(r.turn)).toBe(false);
   });
 });

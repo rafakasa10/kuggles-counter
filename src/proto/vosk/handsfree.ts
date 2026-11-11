@@ -412,7 +412,7 @@ export class HandsFreeRun {
     setText(
       "hf-heard",
       held
-        ? `Check: ${chips || (t.total !== null ? `total ${t.total}` : "bust")} — say “yes” or “no”, or tap (${t.uncertain.join(", ")})`
+        ? `Check: ${chips || (t.total !== null ? `total ${t.total}` : "bust")} — say “yes”, or “no” and the right darts, or the whole turn again; or tap (${t.uncertain.join(", ")})`
         : t.darts.length
           ? `So far: ${chips} (${t.darts.length} dart${t.darts.length > 1 ? "s" : ""})${t.doubtful.some(Boolean) ? " · ? = needs a yes" : ""}`
           : "",

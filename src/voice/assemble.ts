@@ -165,9 +165,11 @@ function addDarts(
     };
   }, start);
   const capped = turn.end === "three" ? turn.dropped - start.dropped : 0;
+  if (capped === 0) return { turn, effects: [] };
+  // More than 3 darts heard: maybe the turn was called again. Hold it instead of guessing.
   return {
-    turn,
-    effects: capped > 0 ? [{ kind: "tooManyDarts", dropped: capped }] : [],
+    turn: { ...turn, uncertain: merge(turn.uncertain, ["more than 3 darts"]) },
+    effects: [{ kind: "tooManyDarts", dropped: capped }],
   };
 }
 
@@ -181,17 +183,22 @@ interface DartsPhrase {
   readonly darts: readonly Dart[];
   readonly doubtful: readonly boolean[];
   readonly then: "next" | null;
+  /** Doubt every dart of this phrase for this reason. */
+  readonly doubtAll?: UncertainReason;
 }
 
 function onDarts(t: PendingTurn, heard: Heard, phrase: DartsPhrase, ctx: AssembleContext): Assembled {
   if (isSettled(t)) return notUsed(t, heard, "turn complete");
-  const held = t.end !== null;
-  // A held turn that ended on "next" keeps that ending when only its last darts are redone.
-  const keepsNext = held && t.end === "next" && t.total === null && !t.bust && doubtIsTrailing(t);
-  const start = held ? withoutDoubt(t, ctx) : t;
-  const doubts = phrase.darts.map((_, i) => t.garbled || phrase.doubtful[i] === true);
+  // A held turn takes "yes", or "no" and the right darts, or the whole turn said again:
+  // new darts replace all of it (keeping some would count a re-said dart twice).
+  const start = t.end !== null ? EMPTY_TURN : t;
+  const doubts = phrase.darts.map(
+    (_, i) => t.garbled || phrase.doubtAll !== undefined || phrase.doubtful[i] === true,
+  );
   const doubtful = doubts.some(Boolean) || heard.tailDoubtful;
-  const reasons = doubtful ? reasonsFor(heard, t.garbled) : [];
+  const reasons = doubtful
+    ? merge(reasonsFor(heard, t.garbled), phrase.doubtAll ? [phrase.doubtAll] : [])
+    : [];
   const collecting = {
     ...start,
     end: start.end === "three" || start.end === "early" ? start.end : null,
@@ -203,9 +210,8 @@ function onDarts(t: PendingTurn, heard: Heard, phrase: DartsPhrase, ctx: Assembl
     doubts,
     ctx,
   );
-  const wantsNext = phrase.then === "next" || keepsNext;
   const turn =
-    wantsNext && added.turn.end === null
+    phrase.then === "next" && added.turn.end === null
       ? { ...added.turn, end: "next" as const }
       : added.turn;
   return { turn, effects: added.effects };
@@ -218,16 +224,29 @@ function onTotal(
   ctx: AssembleContext,
 ): Assembled {
   if (isSettled(t)) return notUsed(t, heard, "turn complete");
-  const collecting = t.end === null && t.darts.length > 0;
-  // Totals mode, darts already in the strip: "twenty" is the next dart, not a total of 20.
-  if (collecting && r.asDarts)
-    return onDarts(t, heard, { darts: r.asDarts.darts, doubtful: heard.asDartsDoubtful, then: r.then }, ctx);
+  const afterDarts = t.darts.length > 0;
+  // Totals mode with darts already in the strip (collecting or held): "twenty" is a dart,
+  // not a total of 20. Two or more numbers ("one twenty") could be either, so they wait.
+  if (afterDarts && r.asDarts) {
+    const several = r.asDarts.darts.length > 1;
+    return onDarts(
+      t,
+      heard,
+      {
+        darts: r.asDarts.darts,
+        doubtful: heard.asDartsDoubtful,
+        then: r.then,
+        ...(several ? { doubtAll: "total after darts" as const } : {}),
+      },
+      ctx,
+    );
+  }
   const reasons = reasonsFor(heard, t.garbled);
   return unchanged({
     ...EMPTY_TURN,
     total: r.total,
     end: "total",
-    uncertain: collecting ? merge(reasons, ["total after darts"]) : reasons,
+    uncertain: afterDarts ? merge(reasons, ["total after darts"]) : reasons,
   });
 }
 
@@ -268,11 +287,13 @@ function onCommand(
     case "next": {
       if (t.end !== null) return unchanged(t);
       // After a garbled call, or an unsure "next", the turn waits for a yes.
-      const reasons = unsure || t.garbled ? reasonsFor(heard, t.garbled) : [];
+      const doubted = unsure || t.garbled;
+      const reasons = doubted ? reasonsFor(heard, t.garbled) : [];
       return unchanged({
         ...t,
         darts: t.darts.length > 0 ? t.darts : [MISS],
-        doubtful: t.darts.length > 0 ? t.doubtful : [false],
+        // On an empty turn an unsure "next" is a doubtful miss, so "no" removes it.
+        doubtful: t.darts.length > 0 ? t.doubtful : [doubted],
         uncertain: merge(t.uncertain, reasons),
         end: "next",
         garbled: false,
