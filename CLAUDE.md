@@ -59,7 +59,8 @@ Full rule decisions are in docs/product/screens.md. Leave room for a computer op
 - Phase 2 (started 2026-11-11 without waiting for the iPhone report, at my request; no UI, Vosk prototype untouched):
   - Done: voice parser test-first: src/voice/parse.ts (+ normalize.ts, vocab.ts), heard.ts (alternatives + uncertainty), the fixture table tests/fixtures/voice-cases.json (212 cases, prototype cases folded in) and npm run add-cases. Dart model in src/engine/dart.ts.
   - Done: X01 engine test-first in src/engine/x01/: rules.ts (bust/checkout per out rule, double in, finishes by enumeration), checkout.ts (hints for the darts left), totals.ts (what a total-pad visit leaves unknown), match.ts (event log, legs/sets, first-to/best-of, win by two with an optional cap, starter rotation, undo by replay), stats.ts (avg, first 9, checkout % per attempt, tons, best leg). A bust counts 3 darts. 638 tests passing, coverage 99% lines.
-  - In progress: the voice turn assembler (darts across phrases → engine), then an independent code review.
+  - Done: voice turn assembler src/voice/assemble.ts (+ x01-context.ts): darts across phrases, early end on checkout/bust, totals and "bust", grace auto-commit only when certain, yes/no for held turns, "one twenty" settled by game context. 671 tests passing.
+  - In progress: independent code review of Phase 2, then fixes.
 - Decisions shown to me in the fixture table (change them if I object): "no score" = a miss that ends the turn; "one twenty"/"one fifty"/"double twenty five" have two readings and wait for yes/no; "fifty" = bull; a bare 25 is the outer bull only as the whole phrase.
 - Waiting on: my iPhone test report (vosk-report.md protocol), still the approval gate for anything built on Vosk. When it arrives: pause, analyse it, and say whether it changes the parser or the plan.
 - Next: finish Phase 2 → (after approval) playable X01 with voice + Voice Test Lab → remaining modes one at a time.
