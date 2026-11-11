@@ -54,9 +54,14 @@ Full rule decisions are in docs/product/screens.md. Leave room for a computer op
 - My global hook blocks new .md files except README/CLAUDE/AGENTS/CONTRIBUTING and files under this project's docs/. Ask me before needing .md files elsewhere (e.g. private-notes/ for the screenshot analysis).
 
 ## Current status
-- Done: Phase 0 UX research; Chalk readability check; Vosk prototype (hands-free + push-to-talk) deployed; 175 tests passing; last commit 6b0acf1.
-- Waiting on: my iPhone test report (vosk-report.md protocol). That's the approval gate.
-- Next after approval: parser + X01 engine test-first (show me the parser fixture table before any UI) → playable X01 with voice + Voice Test Lab → remaining modes one at a time.
+- Done: Phase 0 UX research; Chalk readability check; Vosk prototype (hands-free + push-to-talk) deployed.
+- Deploy: live site = 6b0acf1 (origin/main). Everything after it is local only, not pushed (I said don't push).
+- Phase 2 (started 2026-11-11 without waiting for the iPhone report, at my request; no UI, Vosk prototype untouched):
+  - Done: voice parser test-first: src/voice/parse.ts (+ normalize.ts, vocab.ts), heard.ts (alternatives + uncertainty), the fixture table tests/fixtures/voice-cases.json (212 cases, prototype cases folded in) and npm run add-cases. Dart model in src/engine/dart.ts. 513 tests passing.
+  - In progress: X01 engine test-first in src/engine/x01/ (rules per out mode, checkout hints, legs/sets, undo by replay, stats), then the voice turn assembler.
+- Decisions shown to me in the fixture table (change them if I object): "no score" = a miss that ends the turn; "one twenty"/"one fifty"/"double twenty five" have two readings and wait for yes/no; "fifty" = bull; a bare 25 is the outer bull only as the whole phrase.
+- Waiting on: my iPhone test report (vosk-report.md protocol), still the approval gate for anything built on Vosk. When it arrives: pause, analyse it, and say whether it changes the parser or the plan.
+- Next: finish Phase 2 → (after approval) playable X01 with voice + Voice Test Lab → remaining modes one at a time.
 - Pending: screenshot analysis (reference-screenshots/ empty); LICENSE not chosen yet.
 
 ## Compact Instructions

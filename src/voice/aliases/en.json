@@ -108,6 +108,10 @@
       "segment": 20,
       "multiplier": 2
     },
+    "double tops": {
+      "segment": 20,
+      "multiplier": 2
+    },
     "miss": {
       "segment": 0,
       "multiplier": 0
@@ -133,6 +137,9 @@
       "multiplier": 0
     }
   },
+  "noScore": [
+    "no score"
+  ],
   "commands": {
     "undo": [
       "undo",
@@ -187,5 +194,9 @@
     "then",
     "a",
     "the"
-  ]
+  ],
+  "wakeWord": "score",
+  "rewrites": {
+    "bulls eye": "bullseye"
+  }
 }

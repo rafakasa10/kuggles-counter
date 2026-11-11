@@ -91,16 +91,22 @@ Modes can add their own phrases (e.g. Bob's 27 "two hits", Around the Clock bare
 
 ## 5. Parser (Phase 2, test-first)
 
-`src/voice/parse.ts` turns one phrase into `{ darts: Dart[], command?, total?, unparsed: string[] }` or an error. It's driven by a large fixture table (`tests/fixtures/voice-cases.json`). The vocabulary lives in `src/voice/aliases/en.json`, structured per language so Portuguese ("triplo doze") can be added later. The rules (normalisation, homophones only where a number is expected, specials, the bare-number = single rule, the totals rule, validation) are as in the original brief.
+`parse(text, aliases, { allowTotals })` in `src/voice/parse.ts` turns one phrase into one of: `darts` (1–3), `total` (X01 only), `command`, `wake` (a lone "score") or `ignored` (with a reason). Darts and totals also carry `then: "next"` (the phrase ended with next/done/no score), `wake` (it started with "score") and `alt`, the other reading when a phrase has two with different scores. It's driven by the fixture table `tests/fixtures/voice-cases.json` (one case per line, grouped). The vocabulary lives in `src/voice/aliases/en.json`, structured per language so Portuguese ("triplo doze") can be added later.
 
-**Recogniser alternatives:** try each alternative in order and take the first that parses into 1–3 valid darts (or a valid total or command). With Vosk's restricted grammar there's usually one alternative. With Web Speech there are up to 5.
+Rules beyond the brief (bare number = single, homophones only after a multiplier, specials, totals, validation):
+- **Both engines' output.** Words (Vosk) and Web Speech's digits, letters and punctuation ("Triple 20, T20, 140!") give the same result. Digits above 20 are a total only as the whole phrase; the digits 50 are the bull; a bare 25 is the outer bull only as the whole phrase or after single/double ("twenty, five" can come back as "20 25").
+- **"No score"** is a miss that ends the turn (the rest are misses), like the total pad's *No score*.
+- **Two readings, two scores:** "one twenty" is 120 or S1 S20, "one fifty" 150 or S1 D25, "double twenty five" D20 S5 or the bull. Two numbers read as a total, three as darts; `alt` holds the other reading and the result is **uncertain** (§3.7). When both readings score the same ("twenty six"), the darts win and nothing is flagged.
+- Possible totals are enumerated from the board, not hard-coded (`src/engine/dart.ts`).
+
+**Recogniser alternatives:** `parseHeard(alternatives, aliases, options)` (`src/voice/heard.ts`) tries each alternative in order and takes the first that parses into darts, a total, a command or the wake word. The result is uncertain when it isn't the top alternative, any word is below the confidence threshold (0.6 until the iPhone run says otherwise), or it has an `alt`. With Vosk's restricted grammar there's usually one alternative. With Web Speech there are up to 5.
 
 **Noise rejection (matters most in hands-free):**
 - A phrase is acted on only if **every** word is used by the parse (fillers like "er", "um", "and", "then" excepted). A phrase that is mostly `[unk]`, has no darts words, or leaves any other word unparsed is ignored.
 - Invalid darts make the whole phrase invalid ("double" on its own, "triple bull", a fourth dart). Note that "triple twenty five" is valid: it parses as T20 then 5, because "twenty five" means the outer bull only when it's the whole phrase.
 - Homophones count only straight after a multiplier ("triple for" = T4). A lone "for" or "to" is ignored, because those words are common in conversation.
 - Ignored phrases are **not** shown as errors. They are logged to the Voice Test Lab as *ignored*, with the transcript.
-- The prototype uses a small stand-in acceptor (`src/proto/vosk/accept.ts`) to count false triggers by these rules. Its test cases live in `tests/fixtures/proto-accept-cases.json`, ready to fold into the Phase 2 fixture table.
+- The prototype uses a small stand-in acceptor (`src/proto/vosk/accept.ts`) to count false triggers by these rules. Its cases (`tests/fixtures/proto-accept-cases.json`) are folded into the Phase 2 table, and a test checks the parser agrees with every one of them except two deliberate changes: digits are now accepted ("triple 20"), and "no score" ends the turn.
 
 ## 6. Speech output (caller / read-back)
 

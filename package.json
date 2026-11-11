@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "add-cases": "node scripts/add-cases.mjs",
     "readability": "node scripts/readability-check.mjs > docs/design/chalk-readability.md",
     "model:fetch": "bash scripts/fetch-vosk-model.sh",
     "model:check-vocab": "node scripts/check-vosk-vocab.mjs"

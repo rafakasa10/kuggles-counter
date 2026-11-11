@@ -26,6 +26,12 @@ export interface AliasFile {
   readonly commands: Readonly<Record<string, readonly string[]>>;
   readonly modePhrases: Readonly<Record<string, readonly string[]>>;
   readonly fillers: readonly string[];
+  /** Phrases meaning "this visit scored nothing": a miss that ends the turn. */
+  readonly noScore?: readonly string[];
+  /** Optional word that must start a phrase in hands-free noisy-room mode. */
+  readonly wakeWord?: string;
+  /** Written forms some engines produce, mapped to a canonical phrase ("bulls eye" → "bullseye"). Not grammar words. */
+  readonly rewrites?: Readonly<Record<string, string>>;
 }
 
 export interface GrammarOptions {
@@ -53,6 +59,8 @@ export function buildVoskGrammar(
     ...Object.keys(aliases.specials),
     ...Object.values(aliases.commands).flat(),
     ...Object.values(aliases.modePhrases).flat(),
+    ...(aliases.noScore ?? []),
+    ...(aliases.wakeWord === undefined ? [] : [aliases.wakeWord]),
   ];
   const vocabulary = [
     ...new Set(phrases.flatMap(splitWords).filter(isSpokenWord)),
