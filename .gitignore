@@ -1,0 +1,33 @@
+# Dependencies & build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local env & certificates (dev HTTPS)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# OS / editor
+.DS_Store
+*.local
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Private research notes and third-party reference images: local only, never published
+private-notes/
+reference-screenshots/
+
+# Vosk model archive (downloaded by scripts/fetch-vosk-model.sh / CI; 41 MB)
+public/models/
+
+# Synthetic speech fixtures for local engine tests (macOS `say`), never deployed
+public/dev-audio/
+
+# Local Claude preview config (machine-specific paths)
+.claude/
