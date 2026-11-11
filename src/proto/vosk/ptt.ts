@@ -1,10 +1,11 @@
 import en from "../../voice/aliases/en.json";
 import type { AliasFile } from "../../voice/grammar.ts";
-import { accept, describeAccepted } from "./accept.ts";
+import type { WordConfidence } from "../../voice/heard.ts";
 import type { Pipeline } from "./pipeline.ts";
 import type { VoskResult } from "./engine.ts";
 import { isHealthy } from "./mic.ts";
 import { PHRASES } from "./phrases.ts";
+import { pttParse } from "./pttparse.ts";
 import { compare, isIgnorable } from "./score.ts";
 import { SYNONYMS } from "./synonyms.ts";
 import type { PttEntry } from "./store.ts";
@@ -28,6 +29,7 @@ export class PushToTalkRun {
   private evaluated = true;
   private texts: string[] = [];
   private confs: number[] = [];
+  private words: WordConfidence[] = [];
   private lastResultAt: number | null = null;
   private lastResultLatency: number | null = null;
   private lastSpeechEndAt: number | null = null;
@@ -118,6 +120,7 @@ export class PushToTalkRun {
     this.finalHadText = false;
     this.texts = [];
     this.confs = [];
+    this.words = [];
     this.lastResultAt = null;
     this.lastResultLatency = null;
     this.lastSpeechEndAt = null;
@@ -168,6 +171,7 @@ export class PushToTalkRun {
       this.p.vad.lastVoiceAt > this.startedAt ? this.p.vad.lastVoiceAt : null;
     this.texts = [...this.texts, r.text];
     this.confs = [...this.confs, ...r.words.map((w) => w.conf)];
+    this.words = [...this.words, ...r.words.map((w) => ({ word: w.word, conf: w.conf }))];
     this.lastResultAt = r.at;
     this.lastSpeechEndAt = r.speechEndAt ?? this.lastSpeechEndAt;
     this.lastResultLatency =
@@ -190,7 +194,8 @@ export class PushToTalkRun {
     const heard = this.texts.join(" ");
     const c = compare(phrase.expect, heard, SYNONYMS);
     const parseStart = performance.now();
-    const parsed = describeAccepted(accept(heard, ALIASES));
+    const parse = pttParse(heard, this.words, phrase.expect, phrase.tag, ALIASES);
+    const parsed = parse.parsed;
     const parseMs = performance.now() - parseStart;
     const speechEndToParsedMs =
       this.lastResultAt !== null && this.lastSpeechEndAt !== null
@@ -212,6 +217,9 @@ export class PushToTalkRun {
       finalizeHadText: this.finalHadText,
       grammar: this.useGrammar(),
       parsed,
+      parsedAsExpected: parse.parsedAsExpected,
+      needsConfirm: parse.needsConfirm,
+      scoring: parse.scoring,
       speechEndToParsedMs,
     };
     this.record(entry);

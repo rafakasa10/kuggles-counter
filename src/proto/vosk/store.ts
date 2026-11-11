@@ -1,5 +1,7 @@
 import type { EnvSnapshot } from "./env.ts";
 import type { LoadStats } from "./engine.ts";
+import type { Scoring } from "../../voice/parse.ts";
+import type { ReadBackMode } from "./readback.ts";
 import type { TurnRecord } from "./turnrun.ts";
 
 export interface LaunchEntry {
@@ -40,8 +42,14 @@ export interface PttEntry {
   readonly stopToResultMs: number | null;
   readonly finalizeHadText: boolean;
   readonly grammar: boolean;
-  /** What the acceptor made of the take, e.g. "T12 T12 S8", "total 140", "ignored (…)". */
+  /** What the parser made of the take, e.g. "T12 T12 S8", "total 140", "D16? · needs a yes (…)". */
   readonly parsed: string;
+  /** The take parsed to what the phrase itself parses to (doubt markers aside). */
+  readonly parsedAsExpected: boolean;
+  /** The take would wait for a yes instead of counting at once. */
+  readonly needsConfirm: boolean;
+  /** Totals mode for total phrases, darts mode for the rest. */
+  readonly scoring: Scoring;
   /** End of speech (Vosk word timestamps) → parsed result. */
   readonly speechEndToParsedMs: number | null;
 }
@@ -64,8 +72,11 @@ export interface ChatterRun {
   /** Phrases the app would have acted on: with the wake word off, and with it on. */
   readonly acted: number;
   readonly actedWithWake: number;
+  /** Phrases that would show darts and wait for a yes (not scored by themselves). */
+  readonly confirmPrompts: number;
   readonly kinds: Readonly<Record<string, number>>;
   readonly actedTexts: readonly string[];
+  readonly confirmTexts: readonly string[];
 }
 
 export interface FlowStats {
@@ -85,8 +96,9 @@ export interface ReadBackStats {
   readonly count: number;
   /** Read-backs that errored or never reported their end. */
   readonly failed: number;
-  /** The first phrase after a read-back didn't parse: the player was probably cut off. */
+  /** The first phrase after a read-back began within 300 ms of the mic reopening (or before it): probably cut off. */
   readonly suspectedCutOffs: number;
+  readonly cutOffTexts: readonly string[];
   /** Times speechSynthesis never reported its end and the safety timer reopened the mic. */
   readonly safetyTimeouts: number;
 }
@@ -101,6 +113,8 @@ export interface HandsFreeSession {
   readonly durationS: number;
   readonly wakeRequired: boolean;
   readonly readBack: boolean;
+  readonly readBackMode: ReadBackMode;
+  readonly scoring: Scoring;
   /** Final phrases with words. */
   readonly results: number;
   /** Final phrases the acceptor ignored. */
@@ -125,7 +139,7 @@ export interface HandsFreeSession {
 }
 
 export interface Report {
-  readonly version: 3;
+  readonly version: 4;
   readonly env: EnvSnapshot | null;
   readonly launches: readonly LaunchEntry[];
   readonly modelLoads: readonly ModelLoadEntry[];
@@ -137,10 +151,11 @@ export interface Report {
   readonly notes: string;
 }
 
-const KEY = "kc-proto-vosk-report-v3";
+/** v4 (2026-11-11): the real parser and held turns; starts a fresh report after the first iPhone run. */
+const KEY = "kc-proto-vosk-report-v4";
 
 export const emptyReport = (): Report => ({
-  version: 3,
+  version: 4,
   env: null,
   launches: [],
   modelLoads: [],
@@ -172,12 +187,12 @@ export function loadReport(): Report {
     if (
       typeof parsed !== "object" ||
       parsed === null ||
-      (parsed as { version?: unknown }).version !== 3
+      (parsed as { version?: unknown }).version !== 4
     )
       return emptyReport();
     const p = parsed as Record<string, unknown>;
     return {
-      version: 3,
+      version: 4,
       env:
         typeof p.env === "object" && p.env !== null
           ? (p.env as EnvSnapshot)

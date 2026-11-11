@@ -22,8 +22,8 @@ export const PHRASES: readonly Phrase[] = [
   },
   {
     id: "p03",
-    say: "Treble twenty, twenty, five",
-    expect: "treble twenty twenty five",
+    say: "Treble twenty, twenty, one",
+    expect: "treble twenty twenty one",
     tag: "darts",
   },
   {

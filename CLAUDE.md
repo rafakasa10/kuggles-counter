@@ -28,6 +28,7 @@ A free, voice-controlled darts scorer, built as an installable PWA (iPhone via S
 - Engines: Vosk (offline WebAssembly, darts-only grammar generated from the alias files) is the default in the installed iOS app. The Web Speech API is used in browser tabs.
 - Parser: alias data in src/voice/aliases/, test-first, fixtures in tests/fixtures/. Bare number = single. Reject T25 and invalid segments. X01 total input ("ton forty", "one eighty"); reject impossible totals 163, 166, 169, 172, 173, 175, 176, 178, 179.
 - Hands-free: mic open all game. Only act on utterances that fully parse into valid darts or commands (log the rest). Accumulate darts across utterances and commit at 3 darts or on "next"/"done". A checkout or bust ends the turn immediately, even with fewer than 3 darts. Mute the mic while the app speaks. Optional wake word "score", off by default. Screen Wake Lock during games, reopen the mic on foreground, and show the "⏸ Mic paused · tap to resume" banner. An uncertain result waits for a spoken "yes"/"no". Hands-free switches to Distance view.
+- Since the first iPhone run (details in docs/specs/voice.md §2–5): per-player scoring mode "darts" (never reads totals) or "totals" (plain numbers are a total, "eight five" = 85); near-miss teens after a multiplier ("double sixty" → D16?), [unk] at the start/end and low-confidence darts are doubtful darts that need a "yes" (or a tap) instead of the countdown, and so is the first result after a garbled darts call; the digits 25 are the outer bull anywhere, word forms of 25 that split two ways are ignored; read-back defaults to the score only, always in an English voice; Web Speech always recognises English, whatever the phone's language.
 - Voice Test Lab workflow: export failures → npm run add-cases → fix aliases/parser until tests pass.
 
 ## Game modes (build order)
@@ -54,16 +55,17 @@ Full rule decisions are in docs/product/screens.md. Leave room for a computer op
 - My global hook blocks new .md files except README/CLAUDE/AGENTS/CONTRIBUTING and files under this project's docs/. Ask me before needing .md files elsewhere (e.g. private-notes/ for the screenshot analysis).
 
 ## Current status
-- Done: Phase 0 UX research; Chalk readability check; Vosk prototype (hands-free + push-to-talk) deployed.
-- Deploy: live site = 6b0acf1 (origin/main). Everything after it is local only, not pushed (I said don't push).
-- Phase 2 (started 2026-11-11 without waiting for the iPhone report, at my request; no UI, Vosk prototype untouched):
-  - Done: voice parser test-first: src/voice/parse.ts (+ normalize.ts, vocab.ts), heard.ts (alternatives + uncertainty), the fixture table tests/fixtures/voice-cases.json (212 cases, prototype cases folded in) and npm run add-cases. Dart model in src/engine/dart.ts.
-  - Done: X01 engine test-first in src/engine/x01/: rules.ts (bust/checkout per out rule, double in, finishes by enumeration), checkout.ts (hints for the darts left), totals.ts (what a total-pad visit leaves unknown), match.ts (event log, legs/sets, first-to/best-of, win by two with an optional cap, starter rotation, undo by replay), stats.ts (avg, first 9, checkout % per attempt, tons, best leg). A bust counts 3 darts. 638 tests passing, coverage 99% lines.
-  - Done: voice turn assembler src/voice/assemble.ts (+ x01-context.ts): darts across phrases, early end on checkout/bust, totals and "bust", grace auto-commit only when certain, yes/no for held turns, "one twenty" settled by game context. 671 tests passing.
-  - In progress: independent code review of Phase 2, then fixes.
-- Decisions shown to me in the fixture table (change them if I object): "no score" = a miss that ends the turn; "one twenty"/"one fifty"/"double twenty five" have two readings and wait for yes/no; "fifty" = bull; a bare 25 is the outer bull only as the whole phrase.
-- Waiting on: my iPhone test report (vosk-report.md protocol), still the approval gate for anything built on Vosk. When it arrives: pause, analyse it, and say whether it changes the parser or the plan.
-- Next: finish Phase 2 → (after approval) playable X01 with voice + Voice Test Lab → remaining modes one at a time.
+- Done: Phase 0 UX research; Chalk readability check; Vosk prototype (hands-free + push-to-talk).
+- Deploy: live site = origin/main, deployed by GitHub Actions on every push to main (prototype v4 pushed 2026-11-11; before that 6b0acf1).
+- iPhone run 1 (2026-11-11, Safari tab): push-to-talk APPROVED (36/36, ~0.8 s). Hands-free NOT approved yet (11/14 turns, 17/37 ignored, silent wrong scores). Not tested yet: installed Home Screen app, background/chatter test, battery end %, relaunch permission, screen-off.
+- Phase 2 (no UI yet):
+  - Done: voice parser (src/voice/parse.ts + normalize/vocab/heard), fixture table tests/fixtures/voice-cases.json (277 cases incl. every phrase from run 1), npm run add-cases; dart model src/engine/dart.ts.
+  - Done: X01 engine src/engine/x01/ (rules per out rule + double in, checkout hints, total-pad questions, match with legs/sets/win-by-two/undo by replay, stats). A bust counts 3 darts; a total reaching 0 without a finish is a bust; "bust" is refused where no visit could bust.
+  - Done: voice turn assembler src/voice/assemble.ts (+ x01-context.ts) with per-dart doubt, yes/no for held turns, garbled-then-confirm; a finished certain turn can't be changed by a stray phrase.
+  - Done: run-1 changes (scoring mode, near misses, [unk] edges, per-dart confidence, 25 rule) and the independent review's fixes. 585 tests passing (+1 todo: mode phrases like "two hits" for Bob's 27).
+- Prototype v4 (src/proto/vosk/): now runs the real parser and assembler; held turns with a two-note tone and Confirm/Discard; read-back off/beep/score (default)/full in an English voice; cut-off detection fixed; report v4 (fresh) with silent wrong scores and held turns. docs/prototypes/vosk-report.md has run 1's results and the run 2 protocol.
+- Waiting on: my iPhone run 2 report (installed app first, chatter test, ≥15 min battery, relaunch permission, screen off). That's the approval gate for hands-free. When it arrives: pause, analyse it, and say whether it changes the parser or the plan.
+- Next after approval: playable X01 with voice + Voice Test Lab (incl. the darts/totals toggle) → remaining modes one at a time.
 - Pending: screenshot analysis (reference-screenshots/ empty); LICENSE not chosen yet.
 
 ## Compact Instructions

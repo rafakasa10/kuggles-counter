@@ -52,7 +52,10 @@ export function timeAtSample(
     if (sample > s.end) return null;
     // A sample on a boundary belongs to the earlier chunk, so a gated gap
     // between two chunks can never make latency look shorter than it was.
-    if (sample > s.start) return s.at - ((s.end - sample) * 1000) / sampleRate;
+    // Sample 0 has no earlier chunk: it belongs to the first one. (A word that was
+    // already under way when the recogniser was reset at unmute starts there.)
+    if (sample > s.start || (sample === 0 && s.start === 0))
+      return s.at - ((s.end - sample) * 1000) / sampleRate;
   }
   return null;
 }

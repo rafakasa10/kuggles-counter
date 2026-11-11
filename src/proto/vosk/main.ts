@@ -256,6 +256,12 @@ function summaryText(r: Report): string {
   lines.push(
     `Push-to-talk: ${s.count}/${PHRASES.length} phrases, correct ${fmtPct(s.matchRate)} (literal ${fmtPct(ptt.length ? ptt.filter((e) => e.exact).length / ptt.length : null)}), mean WER ${s.meanWer === null ? "–" : s.meanWer.toFixed(2)}, split turns ${ptt.filter((e) => e.segments > 1).length}`,
   );
+  const takes = r.ptt.filter((e) => typeof e.parsedAsExpected === "boolean");
+  const silentWrong = takes.filter((e) => !e.parsedAsExpected && !e.needsConfirm && !e.parsed.startsWith("ignored"));
+  const asked = takes.filter((e) => e.needsConfirm);
+  lines.push(
+    `  parsed (real parser, totals mode for totals): as the phrase should ${takes.filter((e) => e.parsedAsExpected).length}/${takes.length} takes · needed a yes ${asked.length}${asked.length ? ` (${asked.map((e) => e.id).join(", ")})` : ""} · silent wrong scores ${silentWrong.length}${silentWrong.length ? ` (${silentWrong.map((e) => `${e.id} “${e.heard}” → ${e.parsed}`).join(" | ")})` : ""}`,
+  );
   const endpointed = ptt.filter((e) => e.endpointedBeforeStop);
   const autoStopped = ptt.filter((e) => !e.endpointedBeforeStop);
   const latencyOf = (es: readonly PttEntry[]) =>
@@ -295,7 +301,7 @@ const STYLE_GROUPS: readonly (readonly [string, (style: string) => boolean])[] =
     ["next/done early", (s) => /next|done/.test(s)],
   ];
 
-const MIN_BATTERY_MINUTES = 10;
+const MIN_BATTERY_MINUTES = 15;
 
 function handsFreeLines(h: HandsFreeSession, i: number): string[] {
   const lines: string[] = [];
@@ -313,11 +319,17 @@ function handsFreeLines(h: HandsFreeSession, i: number): string[] {
     h.standalone ? "app" : "tab",
     h.grammar === false ? "OPEN VOCABULARY" : "",
     h.wakeRequired ? "wake word on" : "",
-    h.readBack ? "read-back on" : "",
+    `read-back ${h.readBackMode ?? (h.readBack ? "on" : "off")}`,
+    h.scoring === "totals" ? "totals mode" : "",
     h.completed === false ? "not stopped: last safety save" : "",
   ].filter(Boolean);
   lines.push(
     `Hands-free #${i + 1} (${tags.join(", ")}): ${fmtClock(h.durationS)}, turns correct ${correct}/${turns.length} (${byStyle})`,
+  );
+  const held = turns.filter((t) => t.confirmed);
+  const silent = turns.filter((t) => !t.correct && !t.confirmed && t.end !== "skipped");
+  lines.push(
+    `  held for a yes: ${held.length} turns (${held.filter((t) => t.correct).length} right once confirmed${held.length ? `; ${[...new Set(held.flatMap((t) => t.doubts ?? []))].join(", ")}` : ""}) · silent wrong scores ${silent.length}${silent.length ? ` (${silent.map((t) => t.id).join(", ")})` : ""}`,
   );
   const parts = turns.map((t) => t.parts);
   const missedReal = turns.flatMap((t) => t.ignored ?? []);
@@ -342,7 +354,7 @@ function handsFreeLines(h: HandsFreeSession, i: number): string[] {
   );
   if (h.readBack)
     lines.push(
-      `  read-back: ${rb.count ?? 0} spoken, ${rb.failed ?? 0} failed, suspected cut-offs ${rb.suspectedCutOffs ?? 0}, end event missing ${rb.safetyTimeouts ?? 0}×`,
+      `  read-back (${h.readBackMode ?? "on"}): ${rb.count ?? 0} played, ${rb.failed ?? 0} failed, suspected cut-offs ${rb.suspectedCutOffs ?? 0}${rb.cutOffTexts?.length ? ` (${rb.cutOffTexts.slice(0, 6).join(" | ")})` : ""}, end event missing ${rb.safetyTimeouts ?? 0}×`,
     );
   const tts = Array.isArray(h.tts) ? h.tts : [];
   if (tts.length)
@@ -351,7 +363,7 @@ function handsFreeLines(h: HandsFreeSession, i: number): string[] {
     );
   (Array.isArray(h.chatters) ? h.chatters : []).forEach((c) =>
     lines.push(
-      `  background ${fmtClock(c.elapsedS)}${c.completed ? "" : " (stopped early)"}: false triggers ${c.acted} without wake word (${c.elapsedS ? ((c.acted * 300) / c.elapsedS).toFixed(1) : "–"} per 5 min), ${c.actedWithWake} with it, from ${c.phrases.length} phrases${c.actedTexts.length ? ` (${c.actedTexts.slice(0, 10).join(" | ")})` : ""}`,
+      `  background ${fmtClock(c.elapsedS)}${c.completed ? "" : " (stopped early)"}: false triggers ${c.acted} without wake word (${c.elapsedS ? ((c.acted * 300) / c.elapsedS).toFixed(1) : "–"} per 5 min), ${c.actedWithWake} with it, yes/no prompts ${c.confirmPrompts ?? "–"}, from ${c.phrases.length} phrases${c.actedTexts.length ? ` (${c.actedTexts.slice(0, 10).join(" | ")})` : ""}${c.confirmTexts?.length ? ` · prompts: ${c.confirmTexts.slice(0, 6).join(" | ")}` : ""}`,
     ),
   );
   if (h.batteryStart !== null && h.batteryEnd !== null)

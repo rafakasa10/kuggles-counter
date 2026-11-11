@@ -1,20 +1,32 @@
 /**
- * The hands-free run as a pure reducer: each final phrase goes through the acceptor,
- * the wake-word gate and the turn assembler, and finished turns are scored against
- * the script. Also counts false triggers for the background test. The UI shell is
- * handsfree.ts; keeping the logic here makes it testable without a microphone.
+ * The hands-free run as a pure reducer: each final phrase goes through the real parser
+ * (src/voice/parse.ts via parseHeard), the wake-word gate and the real turn assembler
+ * (src/voice/assemble.ts), and finished turns are scored against the script. A turn
+ * with doubtful darts is held until a spoken "yes"/"no" or a tap. There's no grace timer
+ * here: a certain, complete turn is scored at once. Also counts false triggers for the
+ * background test. The UI shell is handsfree.ts.
  */
-import type { AliasFile } from "../../voice/grammar.ts";
-import { accept, parseNotation, toNotation } from "./accept.ts";
+import { parseNotation, sumScore, toNotation } from "../../engine/dart.ts";
+import { evaluateVisit, type Rules } from "../../engine/x01/rules.ts";
+import { bustOptions } from "../../engine/x01/totals.ts";
 import {
-  addDarts,
-  addTotal,
-  endTurn,
-  newTurn,
-  undoDart,
-  type Turn,
-  type TurnEnd,
-} from "./turn.ts";
+  EMPTY_TURN,
+  assemble,
+  canAutoCommit,
+  type AssembleContext,
+  type Effect,
+  type PendingTurn,
+  type TurnValue,
+} from "../../voice/assemble.ts";
+import type { AliasFile } from "../../voice/grammar.ts";
+import {
+  parseHeard,
+  type Heard,
+  type WordConfidence,
+} from "../../voice/heard.ts";
+import { describeResult, type Scoring } from "../../voice/parse.ts";
+
+export type TurnEnd = "three" | "checkout" | "bust" | "next" | "total";
 
 export interface ScriptTurn {
   readonly id: string;
@@ -31,6 +43,8 @@ export interface HeardPhrase {
   readonly at: number;
   /** End of speech → parsed result. */
   readonly latencyMs: number | null;
+  /** Vosk's words with their confidence, when known. */
+  readonly words?: readonly WordConfidence[];
 }
 
 export interface PhraseOutcome {
@@ -38,6 +52,7 @@ export interface PhraseOutcome {
   readonly latencyMs: number | null;
   readonly acted: boolean;
   readonly note: string;
+  readonly minConf: number | null;
 }
 
 export interface TurnRecord {
@@ -58,104 +73,94 @@ export interface TurnRecord {
   /** End of speech → parsed result for the phrase that finished the turn. */
   readonly latencyMs: number | null;
   readonly score: number;
+  /** The turn was held for a yes or a tap before it counted. */
+  readonly confirmed: boolean;
+  /** Why it was held (low word confidence, corrected number, unknown words…). */
+  readonly doubts: readonly string[];
 }
 
 export interface RunState {
   readonly index: number;
-  readonly turn: Turn;
+  readonly turn: PendingTurn;
   /** Phrases heard during the current turn. */
   readonly phrases: readonly PhraseOutcome[];
   readonly records: readonly TurnRecord[];
   readonly wakeUntil: number;
   /** The last finished turn, for read-back. */
   readonly finished: TurnRecord | null;
+  /** What the last phrase (or tap) did, for the log. */
+  readonly lastPhrase: PhraseOutcome | null;
 }
 
 export interface RunOptions {
   readonly aliases: AliasFile;
   readonly wakeRequired: boolean;
   readonly wakeWindowMs: number;
+  readonly scoring: Scoring;
+  readonly minWordConfidence?: number;
 }
 
 const WAKE_NOTE = "wake word";
+const NO_WAKE_NOTE = "no wake word";
+const RULES: Rules = { inRule: "straight", outRule: "double" };
 
-const turnFor = (script: readonly ScriptTurn[], index: number): Turn =>
-  newTurn(script[index]?.remaining ?? 501);
+/** How a scripted turn ends: double out from its remaining score. */
+export const contextFor = (remaining: number): AssembleContext => ({
+  endsTurn: (darts) =>
+    evaluateVisit(remaining, darts, RULES, true).outcome !== "open",
+  acceptsBust: true,
+  bustPossible: () => bustOptions(remaining, RULES.outRule, true).length > 0,
+});
 
-export const startRun = (script: readonly ScriptTurn[]): RunState => ({
+export const startRun = (): RunState => ({
   index: 0,
-  turn: turnFor(script, 0),
+  turn: EMPTY_TURN,
   phrases: [],
   records: [],
   wakeUntil: -Infinity,
   finished: null,
+  lastPhrase: null,
 });
 
-function applyPhrase(
-  turn: Turn,
-  phrase: HeardPhrase,
-  s: RunState,
-  opts: RunOptions,
-): { turn: Turn; outcome: PhraseOutcome; wakeUntil: number } {
-  const a = accept(phrase.text, opts.aliases);
-  const base = { text: phrase.text, latencyMs: phrase.latencyMs };
-  if (a.kind === "wake")
-    return {
-      turn,
-      outcome: { ...base, acted: false, note: WAKE_NOTE },
-      wakeUntil: phrase.at + opts.wakeWindowMs,
-    };
-  const keep = { turn, wakeUntil: s.wakeUntil };
-  if (a.kind === "ignored")
-    return { ...keep, outcome: { ...base, acted: false, note: a.reason } };
-  const woke = !opts.wakeRequired || a.wake || phrase.at <= s.wakeUntil;
-  if (!woke)
-    return {
-      ...keep,
-      outcome: { ...base, acted: false, note: "no wake word" },
-    };
-  const used = { wakeUntil: -Infinity };
-  if (a.kind === "darts") {
-    const withDarts = addDarts(turn, a.darts);
-    const next = a.then ? endTurn(withDarts, "next") : withDarts;
-    return {
-      ...used,
-      turn: next,
-      outcome: { ...base, acted: true, note: toNotation(a.darts) },
-    };
-  }
-  if (a.kind === "total")
-    return {
-      ...used,
-      turn: addTotal(turn, a.total),
-      outcome: { ...base, acted: true, note: `total ${a.total}` },
-    };
-  const byCommand: Readonly<Record<string, (t: Turn) => Turn>> = {
-    next: (t) => endTurn(t, "next"),
-    bust: (t) => endTurn(t, "bust"),
-    undo: undoDart,
-  };
-  const act = byCommand[a.command];
-  return {
-    ...used,
-    turn: act ? act(turn) : turn,
-    outcome: {
-      ...base,
-      acted: true,
-      note: act ? a.command : `${a.command} (no effect in this test)`,
-    },
-  };
+const hasDoubt = (t: PendingTurn): boolean =>
+  t.uncertain.length > 0 || t.doubtful.some(Boolean);
+
+function endOf(
+  turn: PendingTurn,
+  value: TurnValue,
+  remaining: number,
+): TurnEnd {
+  if (value.kind === "bust") return "bust";
+  if (value.kind === "total")
+    return value.total === remaining
+      ? "checkout"
+      : value.total > remaining
+        ? "bust"
+        : "total";
+  if (turn.end === "early")
+    return evaluateVisit(remaining, value.darts, RULES, true).outcome ===
+      "checkout"
+      ? "checkout"
+      : "bust";
+  return turn.end === "next" ? "next" : "three";
 }
+
+const heardText = (v: TurnValue): string =>
+  v.kind === "darts"
+    ? toNotation(v.darts)
+    : v.kind === "total"
+      ? `total ${v.total}`
+      : "bust";
 
 function record(
   scripted: ScriptTurn,
-  turn: Turn,
+  pre: PendingTurn,
+  value: TurnValue,
   phrases: readonly PhraseOutcome[],
-  end: TurnEnd | "skipped",
 ): TurnRecord {
   const expected = toNotation(parseNotation(scripted.expect));
-  const heard =
-    turn.total !== null ? `total ${turn.total}` : toNotation(turn.darts);
+  const heard = heardText(value);
+  const end = endOf(pre, value, scripted.remaining);
   return {
     id: scripted.id,
     style: scripted.style,
@@ -169,28 +174,95 @@ function record(
     ignored: phrases
       .filter((p) => !p.acted && p.note !== WAKE_NOTE)
       .map((p) => p.text),
-    dropped: turn.dropped,
+    dropped: pre.dropped,
     latencyMs: phrases.at(-1)?.latencyMs ?? null,
     score:
-      turn.total ??
-      turn.darts.reduce((sum, d) => sum + d.segment * d.multiplier, 0),
+      value.kind === "darts"
+        ? sumScore(value.darts)
+        : value.kind === "total"
+          ? value.total
+          : 0,
+    confirmed: hasDoubt(pre),
+    doubts: pre.uncertain,
   };
 }
 
-function advance(
-  s: RunState,
-  script: readonly ScriptTurn[],
-  rec: TurnRecord,
-  wakeUntil: number,
-): RunState {
-  const index = s.index + 1;
+function advance(s: RunState, rec: TurnRecord): RunState {
   return {
-    index,
-    turn: turnFor(script, index),
+    ...s,
+    index: s.index + 1,
+    turn: EMPTY_TURN,
     phrases: [],
     records: [...s.records, rec],
-    wakeUntil,
     finished: rec,
+    wakeUntil: -Infinity,
+  };
+}
+
+const effectNote = (e: Effect): string | null => {
+  switch (e.kind) {
+    case "notUsed":
+      return `not used: ${e.reason}`;
+    case "tooManyDarts":
+      return `${e.dropped} extra dart${e.dropped === 1 ? "" : "s"} dropped`;
+    case "command":
+      return `${e.command} (no effect in this test)`;
+    default:
+      return null;
+  }
+};
+
+/** Runs one heard phrase (or a tap, as a heard command) through the assembler. */
+function step(
+  s: RunState,
+  script: readonly ScriptTurn[],
+  heard: Heard,
+  outcome: Omit<PhraseOutcome, "acted" | "note">,
+): RunState {
+  const scripted = script[s.index];
+  if (!scripted) return s;
+  const result = assemble(
+    s.turn,
+    { kind: "heard", heard },
+    contextFor(scripted.remaining),
+  );
+  const isIgnored = heard.result.kind === "ignored";
+  const notes = result.effects
+    .map(effectNote)
+    .filter((n): n is string => n !== null);
+  const doubt =
+    heard.uncertain.length > 0
+      ? ` · needs a yes (${heard.uncertain.join(", ")})`
+      : "";
+  const acted = !isIgnored && !result.effects.some((e) => e.kind === "notUsed");
+  const phrase: PhraseOutcome = {
+    ...outcome,
+    acted,
+    note:
+      isIgnored && heard.result.kind === "ignored"
+        ? heard.result.reason
+        : `${describeResult(heard.result)}${doubt}${notes.length ? ` · ${notes.join(", ")}` : ""}`,
+  };
+  const phrases = [...s.phrases, phrase];
+  const committed = result.effects.find((e) => e.kind === "commit");
+  if (committed?.kind === "commit")
+    return { ...advance(s, record(scripted, s.turn, committed.visit, phrases)), lastPhrase: phrase };
+  if (canAutoCommit(result.turn)) {
+    const graced = assemble(
+      result.turn,
+      { kind: "graceElapsed" },
+      contextFor(scripted.remaining),
+    ).effects[0];
+    if (graced?.kind === "commit")
+      return { ...advance(s, record(scripted, result.turn, graced.visit, phrases)), lastPhrase: phrase };
+  }
+  return {
+    ...s,
+    turn: result.turn,
+    phrases,
+    finished: null,
+    lastPhrase: phrase,
+    wakeUntil: acted ? -Infinity : s.wakeUntil,
   };
 }
 
@@ -200,43 +272,99 @@ export function onPhrase(
   phrase: HeardPhrase,
   opts: RunOptions,
 ): RunState {
-  const scripted = script[s.index];
-  if (!scripted) return s;
-  const { turn, outcome, wakeUntil } = applyPhrase(s.turn, phrase, s, opts);
-  const phrases = [...s.phrases, outcome];
-  if (turn.end === null)
-    return { ...s, turn, phrases, wakeUntil, finished: null };
-  return advance(
-    s,
-    script,
-    record(scripted, turn, phrases, turn.end),
-    wakeUntil,
+  if (!script[s.index]) return s;
+  const heard = parseHeard(
+    [{ text: phrase.text, ...(phrase.words ? { words: phrase.words } : {}) }],
+    opts.aliases,
+    {
+      scoring: opts.scoring,
+      ...(opts.minWordConfidence !== undefined
+        ? { minWordConfidence: opts.minWordConfidence }
+        : {}),
+    },
   );
+  const base = {
+    text: phrase.text,
+    latencyMs: phrase.latencyMs,
+    minConf: heard.minConf,
+  };
+  const r = heard.result;
+  if (r.kind === "wake") {
+    const woke: PhraseOutcome = { ...base, acted: false, note: WAKE_NOTE };
+    return { ...s, phrases: [...s.phrases, woke], wakeUntil: phrase.at + opts.wakeWindowMs, finished: null, lastPhrase: woke };
+  }
+  const led = r.kind !== "ignored" && r.wake;
+  if (
+    opts.wakeRequired &&
+    r.kind !== "ignored" &&
+    !led &&
+    phrase.at > s.wakeUntil
+  )
+    return {
+      ...s,
+      phrases: [...s.phrases, { ...base, acted: false, note: NO_WAKE_NOTE }],
+      finished: null,
+      lastPhrase: { ...base, acted: false, note: NO_WAKE_NOTE },
+    };
+  return step(s, script, heard, base);
 }
+
+const tap = (command: "confirm" | "cancel"): Heard => ({
+  result: { kind: "command", command, wake: false },
+  index: 0,
+  text: command === "confirm" ? "(tap: confirm)" : "(tap: discard)",
+  uncertain: [],
+  doubtful: [],
+  minConf: null,
+});
+
+/** The Confirm / Discard buttons: the same as saying "yes" / "no". */
+export const tapConfirm = (
+  s: RunState,
+  script: readonly ScriptTurn[],
+): RunState =>
+  step(s, script, tap("confirm"), {
+    text: "(tap: confirm)",
+    latencyMs: null,
+    minConf: null,
+  });
+export const tapDiscard = (
+  s: RunState,
+  script: readonly ScriptTurn[],
+): RunState =>
+  step(s, script, tap("cancel"), {
+    text: "(tap: discard)",
+    latencyMs: null,
+    minConf: null,
+  });
+
+/** True while a finished turn waits for a yes / no. */
+export const isHeld = (s: RunState): boolean =>
+  s.turn.end !== null && hasDoubt(s.turn);
 
 /** Gives up on the current turn (e.g. a dart was misheard and the turn can't end). */
 export function skipTurn(s: RunState, script: readonly ScriptTurn[]): RunState {
   const scripted = script[s.index];
   if (!scripted) return s;
-  return advance(
-    s,
-    script,
-    record(scripted, s.turn, s.phrases, "skipped"),
-    s.wakeUntil,
-  );
+  const value: TurnValue =
+    s.turn.total !== null
+      ? { kind: "total", total: s.turn.total }
+      : { kind: "darts", darts: s.turn.darts };
+  const rec = {
+    ...record(scripted, s.turn, value, s.phrases),
+    end: "skipped" as const,
+    correct: false,
+  };
+  return advance(s, rec);
 }
 
 /** Drops the last scored turn (a stray noise got scored) and asks for it again. */
-export function dropLastTurn(
-  s: RunState,
-  script: readonly ScriptTurn[],
-): RunState {
+export function dropLastTurn(s: RunState): RunState {
   if (s.records.length === 0) return s;
-  const index = s.records.length - 1;
   return {
     ...s,
-    index,
-    turn: turnFor(script, index),
+    index: s.records.length - 1,
+    turn: EMPTY_TURN,
     phrases: [],
     records: s.records.slice(0, -1),
     finished: null,
@@ -247,43 +375,68 @@ export function dropLastTurn(
 
 export interface TriggerCount {
   readonly phrases: number;
-  /** Phrases the app would act on with the wake word off. */
+  /** Phrases the app would act on at once (certain), with the wake word off. */
   readonly acted: number;
-  /** Phrases the app would act on with the wake word "score" required. */
+  /** The same with the wake word "score" required. */
   readonly actedWithWake: number;
+  /** Phrases that would show darts and ask for a yes (not scored on their own). */
+  readonly confirmPrompts: number;
   readonly kinds: Readonly<Record<string, number>>;
   readonly actedTexts: readonly string[];
+  readonly confirmTexts: readonly string[];
 }
 
 export function countTriggers(
-  phrases: readonly { readonly text: string; readonly at: number }[],
+  phrases: readonly {
+    readonly text: string;
+    readonly at: number;
+    readonly words?: readonly WordConfidence[];
+  }[],
   aliases: AliasFile,
   wakeWindowMs: number,
 ): TriggerCount {
-  let wakeUntil = -Infinity;
-  let actedWithWake = 0;
-  const actedTexts: string[] = [];
-  const kinds: Record<string, number> = {};
-  for (const p of phrases) {
-    const a = accept(p.text, aliases);
-    if (a.kind === "wake") {
-      wakeUntil = p.at + wakeWindowMs;
-      continue;
-    }
-    if (a.kind === "ignored") continue;
-    actedTexts.push(p.text);
-    const kind = a.kind === "command" ? a.command : a.kind;
-    kinds[kind] = (kinds[kind] ?? 0) + 1;
-    if (a.wake || p.at <= wakeUntil) {
-      actedWithWake += 1;
-      wakeUntil = -Infinity;
-    }
-  }
-  return {
+  const empty: TriggerCount = {
     phrases: phrases.length,
-    acted: actedTexts.length,
-    actedWithWake,
-    kinds,
-    actedTexts,
+    acted: 0,
+    actedWithWake: 0,
+    confirmPrompts: 0,
+    kinds: {},
+    actedTexts: [],
+    confirmTexts: [],
   };
+  const counted = phrases.reduce(
+    (acc, p) => {
+      const heard = parseHeard(
+        [{ text: p.text, ...(p.words ? { words: p.words } : {}) }],
+        aliases,
+        { scoring: "darts" },
+      );
+      const r = heard.result;
+      if (r.kind === "wake") return { ...acc, wakeUntil: p.at + wakeWindowMs };
+      if (r.kind === "ignored") return acc;
+      if (heard.uncertain.length > 0)
+        return {
+          ...acc,
+          c: {
+            ...acc.c,
+            confirmPrompts: acc.c.confirmPrompts + 1,
+            confirmTexts: [...acc.c.confirmTexts, p.text],
+          },
+        };
+      const kind = r.kind === "command" ? r.command : r.kind;
+      const woke = r.wake || p.at <= acc.wakeUntil;
+      return {
+        wakeUntil: woke ? -Infinity : acc.wakeUntil,
+        c: {
+          ...acc.c,
+          acted: acc.c.acted + 1,
+          actedWithWake: acc.c.actedWithWake + (woke ? 1 : 0),
+          kinds: { ...acc.c.kinds, [kind]: (acc.c.kinds[kind] ?? 0) + 1 },
+          actedTexts: [...acc.c.actedTexts, p.text],
+        },
+      };
+    },
+    { wakeUntil: -Infinity, c: empty },
+  );
+  return counted.c;
 }

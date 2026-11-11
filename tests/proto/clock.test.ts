@@ -45,6 +45,12 @@ describe("stream clock", () => {
     expect(timeAtSample(c, CHUNK, RATE)).toBe(100);
   });
 
+  it("maps sample 0 to the first chunk (a word already under way at a reset)", () => {
+    const c = feedChunks(3, 1000);
+    expect(timeAtSample(c, 0, RATE)).toBeCloseTo(1000);
+    expect(speechStartAt(c, [{ word: "twenty", start: 0, end: 0.3 }], RATE)).toBeCloseTo(1000);
+  });
+
   it("returns null outside what was fed", () => {
     const c = feedChunks(3, 0);
     expect(timeAtSample(c, 3 * CHUNK + 1, RATE)).toBeNull();

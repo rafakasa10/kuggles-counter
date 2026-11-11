@@ -10,7 +10,7 @@ One `SpeechEngine` interface (`src/voice/engines/`), two adapters:
 |---|---|---|
 | Package / API | `vosk-browser` 0.0.8 (WASM in a Web Worker, single-threaded, **no SharedArrayBuffer**, so plain GitHub Pages works) | `SpeechRecognition` / `webkitSpeechRecognition` |
 | Model | `vosk-model-small-en-us-0.15`: **41.2 MB** download, 68 MB unpacked, Apache-2.0 | none (browser or OS service) |
-| Vocabulary | **restricted grammar** generated from the alias file, plus `[unk]` | open, `maxAlternatives: 5`, `interimResults: true`, language from settings (default `en-GB`) |
+| Vocabulary | **restricted grammar** generated from the alias file, plus `[unk]` | open, `maxAlternatives: 5`, `interimResults: true`, language from the app's setting (default `en-GB`), **never the phone's language** (a pt-BR phone must still recognise English darts calls) |
 | Availability | everywhere with WASM + `getUserMedia` | not in installed iOS Home Screen apps; Safari/Chrome tabs and Android |
 | Default when | **installed iOS app**; any browser without Web Speech | Android, desktop Chrome/Edge, iOS Safari tab |
 
@@ -38,7 +38,8 @@ The mic stays open for the whole game. Vosk streams continuously and finalises o
 
 - **Start:** the *Start game* tap (or *Resume*) is the user gesture that opens the mic and resumes audio. The mic stays open until the game ends, the user pauses, or the app goes to the background.
 - **Streaming:** audio frames go to the recogniser continuously. A phrase is final when Vosk emits `result` (its own endpointing), or when the partial text hasn't changed for **800 ms** (setting), whichever comes first.
-- **Only complete phrases count.** A final phrase is acted on only if it **fully parses** into 1–3 valid darts, a valid X01 total or a command (§5). Anything else (chatter, half a phrase, `[unk]`) is **ignored silently**: no error, no sound, no change on screen. It's logged in the Voice Test Lab as *ignored*, with the transcript.
+- **Only complete phrases count.** A final phrase is acted on only if it **fully parses** into 1–3 valid darts, a valid X01 total or a command (§5). Anything else (chatter, half a phrase, `[unk]` in the middle) is **ignored silently**: no error, no sound, no change on screen. It's logged in the Voice Test Lab as *ignored*, with the transcript.
+- **After a garbled call, ask.** If an ignored phrase looked like a darts call (at least half its words are darts words: "triples bull triple score eight", but not "nice one mate"), the next accepted result in that turn needs a yes instead of the countdown. (First iPhone run, h02: a garbled call was followed by a stray "eighty" that scored 80.)
 - **Darts gather across phrases.** "Triple twenty … twenty … five" said as three separate phrases builds one turn, exactly like "triple twenty, twenty, five" in one breath (§3).
 - **Wake word (optional, off by default).** For noisy rooms. With it on, only phrases that start with **"score"** ("score, triple twenty") are acted on, or a phrase that arrives within **4 s** after a lone "score". "Score" is already a grammar word (from "no score"), so turning it on doesn't change recognition.
 - **Display:** the screen switches to **Distance view** automatically (big numbers, keypad collapsed to a bar). The mic key becomes a status light: *Listening*, *Paused* or *Mic paused*. Tapping it pauses.
@@ -57,10 +58,10 @@ The mic stays open for the whole game. Vosk streams continuously and finalises o
 
 ## 3. Turn assembly (both modes)
 
-Every final phrase goes to the parser (§5) and then to the **turn assembler** (`src/voice/assemble.ts`, a pure reducer; the app owns the grace timer and applies its effects: commit, command, ignored, too many darts). The game mode tells it whether totals are allowed and when darts end a turn (`src/voice/x01-context.ts` for X01). When a phrase has two readings, the assembler takes the darts if darts are already in the strip, else the first reading that fits the score (so "one twenty" on 100 left reads as S1 S20), and the turn stays uncertain:
+Every final phrase goes to the parser (§5) and then to the **turn assembler** (`src/voice/assemble.ts`, a pure reducer; the app owns the grace timer and applies its effects: commit, command, ignored, too many darts). The game mode tells it when darts end a turn and whether "bust" is a visit (`src/voice/x01-context.ts` for X01, which also refuses "bust" where no visit could bust, e.g. a bystander at 501):
 
 1. **Darts** append to the pending turn, up to 3, whether they come in one phrase or several. Extra darts are rejected with "Only 3 darts per turn".
-2. A **total** (X01 only, e.g. "one hundred") replaces any pending darts and completes the turn.
+2. A **total** (X01 players in totals mode only, e.g. "one hundred") replaces any pending darts and completes the turn. A total that reaches 0 without a possible finish is scored as a bust, like the per-dart pad.
 3. **Commands** act immediately (§4). A trailing "next"/"done" in the same phrase as darts ("twenty, done") counts too.
 4. The turn is **complete** when:
    - it has 3 darts, or
@@ -70,10 +71,17 @@ Every final phrase goes to the parser (§5) and then to the **turn assembler** (
    - "no", "cancel" or "undo" cancels it
    - "yes" commits it at once
    - tapping a chip edits that dart
-6. **Otherwise an incomplete turn never auto-commits.** With 1–2 darts and no checkout or bust, it waits on screen for more darts or for "next". That suits players who call each dart as they throw it, as well as players who call all three at the end.
-7. **Low confidence** (any word below the confidence threshold, or the winning alternative isn't the top one) means **no auto-commit**:
-   - Push-to-talk: the chips are dashed and wait for a tap.
-   - Hands-free: the strip asks for a spoken "yes"/"correct" to commit or "no"/"scratch that" to discard. A new valid turn replaces the held one.
+   - any other phrase is **not used**: a stray word can never change a finished, certain turn
+6. **Otherwise an incomplete turn never auto-commits.** With 1–2 darts and no checkout or bust, it waits on screen for more darts or for "next". That suits players who call each dart as they throw it, as well as players who call all three at the end. "No" is everyday speech, so it does nothing to a certain turn that is still collecting.
+7. **Doubtful darts** are flagged **one by one** and highlighted (dashed outline and "?"). A turn with any doubt **never auto-commits**. A dart is doubtful when:
+   - its own words are below the confidence threshold (0.6 to start; the first run's correct phrases dipped to 0.53, its silent errors scored 0.82 and 1.0, so the threshold alone isn't the safety net)
+   - it is a near-miss guess ("double sixty" → D16?)
+   - Vosk's `[unk]` was dropped from the start or end of its phrase
+   - its phrase came from an alternative that isn't the top one, or straight after a garbled call (§2)
+
+   Then:
+   - Push-to-talk: the doubtful chips wait for a tap.
+   - Hands-free: a two-note tone, then the strip asks for "yes"/"correct" (commits) or "no"/"scratch that" (**removes only the doubtful darts**; the certain ones stay). A new valid phrase replaces the doubtful darts.
 
 ## 4. Commands
 
@@ -91,26 +99,36 @@ Modes can add their own phrases (e.g. Bob's 27 "two hits", Around the Clock bare
 
 ## 5. Parser (Phase 2, test-first)
 
-`parse(text, aliases, { allowTotals })` in `src/voice/parse.ts` turns one phrase into one of: `darts` (1–3), `total` (X01 only), `command`, `wake` (a lone "score") or `ignored` (with a reason). Darts and totals also carry `then: "next"` (the phrase ended with next/done/no score), `wake` (it started with "score") and `alt`, the other reading when a phrase has two with different scores. It's driven by the fixture table `tests/fixtures/voice-cases.json` (one case per line, grouped). The vocabulary lives in `src/voice/aliases/en.json`, structured per language so Portuguese ("triplo doze") can be added later.
+`parse(text, aliases, { scoring })` in `src/voice/parse.ts` turns one phrase into one of: `darts` (1–3), `total`, `command`, `wake` (a lone "score") or `ignored` (with a reason, and whether it looked like a darts call). Darts carry, per dart, whether it was a near-miss guess and which words it came from (for per-dart confidence), plus whether `[unk]` was dropped. Darts and totals carry `then: "next"` (the phrase ended with next/done/no score) and `wake` (it started with "score"). It's driven by the fixture table `tests/fixtures/voice-cases.json` (one case per line, grouped; a "?" after a dart = a guess, "unk: " = `[unk]` dropped). The vocabulary lives in `src/voice/aliases/en.json`, structured per language so Portuguese ("triplo doze") can be added later.
 
-Rules beyond the brief (bare number = single, homophones only after a multiplier, specials, totals, validation):
-- **Both engines' output.** Words (Vosk) and Web Speech's digits, letters and punctuation ("Triple 20, T20, 140!") give the same result. Digits above 20 are a total only as the whole phrase; the digits 50 are the bull; a bare 25 is the outer bull only as the whole phrase or after single/double ("twenty, five" can come back as "20 25").
-- **"No score"** is a miss that ends the turn (the rest are misses), like the total pad's *No score*.
-- **Two readings, two scores:** "one twenty" is 120 or S1 S20, "one fifty" 150 or S1 D25, "double twenty five" D20 S5 or the bull. Two numbers read as a total, three as darts; `alt` holds the other reading and the result is **uncertain** (§3.7). When both readings score the same ("twenty six"), the darts win and nothing is flagged.
-- Possible totals are enumerated from the board, not hard-coded (`src/engine/dart.ts`).
+**Scoring mode (per X01 player: a setting plus a quick toggle in game; every other mode is darts):**
+- **Darts** (default): bare numbers are singles and **totals are never read**, so a stray "eighty" or "one hundred" is ignored. (First iPhone run, h02: a stray "eighty" scored 80.)
+- **Totals**: a phrase of plain numbers is the visit total ("sixty", "one twenty", "ton forty", "140"), and single digits are read one by one ("eight five" = 85, first run p28). A phrase with a multiplier or a special is still darts ("double sixteen", "bull", "no score"), so a totals player can call a checkout dart by dart.
 
-**Recogniser alternatives:** `parseHeard(alternatives, aliases, options)` (`src/voice/heard.ts`) tries each alternative in order and takes the first that parses into darts, a total, a command or the wake word. The result is uncertain when it isn't the top alternative, any word is below the confidence threshold (0.6 until the iPhone run says otherwise), or it has an `alt`. With Vosk's restricted grammar there's usually one alternative. With Web Speech there are up to 5.
+**Other rules beyond the brief** (bare number = single, homophones only after a multiplier, specials, totals, validation):
+- **Both engines' output.** Words (Vosk) and Web Speech's digits, letters and punctuation ("Triple 20, T20, 140!") give the same result. Digits above 20 are never darts; the digits 50 are the bull.
+- **Twenty-five.** "twenty five" as the whole phrase is the outer bull. Said with other darts, it is **ignored when it splits two ways** ("twenty twenty five" = S20 S25 or S20 S20 S5? "double twenty five" = D20 S5 or the bull?), and accepted when only one way is valid ("triple twenty five" = T20 S5: there's no treble bull). The **digits 25 are one number**, so they are the outer bull anywhere ("20 25" = S20 S25, "triple 20 25" = T20 S25). Say "bull" or "outer bull" to be clear.
+- **Near misses** ("double sixty" → D16?, "triple eighty" → T18?): straight after a multiplier, sixty–ninety become sixteen–nineteen, as a guess that needs a yes (first run p04, h07, h08). Never for a lone number ("fifty" stays the bull, "sixty" is ignored in darts mode). The list is alias data (`nearMisses`).
+- **`[unk]` at the start or end** is dropped and the darts are kept for a yes ("[unk] twenty" → S20?, first run h14). `[unk]` in the middle, or with a command or total, makes the phrase ignored.
+- **"No score"** is a miss that ends the turn (the rest are misses), like the total pad's *No score*. It never adds a fourth dart.
+- **Mode phrases** such as Bob's 27 "two hits" are ignored in X01 (first run p35, as it should be). Modes will pass their own phrases to the parser; a pending test marks this.
+- Possible totals and finishes are enumerated from the board, not hard-coded (`src/engine/dart.ts`, `src/engine/x01/rules.ts`).
+
+**Recogniser alternatives:** `parseHeard(alternatives, aliases, options)` (`src/voice/heard.ts`) tries each alternative in order and takes the first that parses into darts, a total, a command or the wake word, then marks which darts are doubtful (§3.7). With Vosk's restricted grammar there's usually one alternative. With Web Speech there are up to 5.
 
 **Noise rejection (matters most in hands-free):**
-- A phrase is acted on only if **every** word is used by the parse (fillers like "er", "um", "and", "then" excepted). A phrase that is mostly `[unk]`, has no darts words, or leaves any other word unparsed is ignored.
-- Invalid darts make the whole phrase invalid ("double" on its own, "triple bull", a fourth dart). Note that "triple twenty five" is valid: it parses as T20 then 5, because "twenty five" means the outer bull only when it's the whole phrase.
+- A phrase is acted on only if **every** word is used by the parse (fillers like "er", "um", "and", "then" excepted). A phrase with no darts words, or that leaves any other word unparsed, is ignored.
+- Invalid darts make the whole phrase invalid ("double" on its own, "triple bull", a fourth dart).
 - Homophones count only straight after a multiplier ("triple for" = T4). A lone "for" or "to" is ignored, because those words are common in conversation.
 - Ignored phrases are **not** shown as errors. They are logged to the Voice Test Lab as *ignored*, with the transcript.
-- The prototype uses a small stand-in acceptor (`src/proto/vosk/accept.ts`) to count false triggers by these rules. Its cases (`tests/fixtures/proto-accept-cases.json`) are folded into the Phase 2 table, and a test checks the parser agrees with every one of them except two deliberate changes: digits are now accepted ("triple 20"), and "no score" ends the turn.
+- The prototype now runs the real parser and assembler (`src/proto/vosk/turnrun.ts`, `pttparse.ts`), so the next iPhone run measures exactly these rules.
 
 ## 6. Speech output (caller / read-back)
 
-- **The app never hears itself:** before speaking (read-back or caller), the mic is **muted** for the recogniser: stop feeding audio to it and drop its partial result. Resume **300 ms after** the utterance ends, with a safety timeout in case `speechSynthesis` never fires `end` (unreliable on iOS). In hands-free the mic track stays open (no re-permission); only its audio is gated. If the player talks while the app is speaking, that speech is lost, so read-back stays short ("eighty", "bust", "game shot"). **[proto]** counts how often that happens.
+- **The app never hears itself:** before speaking (read-back or caller), the mic is **muted** for the recogniser: stop feeding audio to it and drop its partial result. Resume **300 ms after** the utterance ends, with a safety timeout in case `speechSynthesis` never fires `end` (unreliable on iOS). In hands-free the mic track stays open (no re-permission); only its audio is gated. If the player talks while the app is speaking, that speech is lost, so read-back stays short.
+- **Read-back** (hands-free setting): **the score** (default: "eighty", "bust", "game shot"), **a beep**, **the darts and the score** ("treble 20, 1, double 16. 93"), or off. A held turn plays a two-note tone instead, meaning "say yes or no".
+- **Always an English voice** (en-GB first), whatever the phone's language.
+- **Cut-off detection [proto]:** the first phrase after a read-back counts as probably cut off if its first word starts within **300 ms** of the mic reopening, or before it (the recogniser restarts at unmute, so a word already under way has no start time of its own). The first run logged 0 although the player noticed cut-offs: that missing start time was being skipped.
 - **Echo cancellation and noise suppression** are on (`getUserMedia` constraints).
 - **[proto] iOS audio routing:** while the mic is open, iOS may play speech through the quiet earpiece instead of the loudspeaker. The prototype checks this, and the fallback (briefly releasing the mic during speech) gets decided from the result.
 

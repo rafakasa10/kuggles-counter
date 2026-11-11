@@ -1,6 +1,8 @@
 import en from "../../voice/aliases/en.json";
 import type { AliasFile } from "../../voice/grammar.ts";
-import { accept, describeAccepted, toNotation } from "./accept.ts";
+import { dartNotation } from "../../engine/dart.ts";
+import { parseHeard, type WordConfidence } from "../../voice/heard.ts";
+import { describeResult } from "../../voice/parse.ts";
 import type { VoskResult } from "./engine.ts";
 import { isStandalone } from "./env.ts";
 import {
@@ -15,6 +17,14 @@ import { isHealthy } from "./mic.ts";
 import type { Pipeline } from "./pipeline.ts";
 import { HANDSFREE_SCRIPT } from "./script.ts";
 import { isIgnorable } from "./score.ts";
+import {
+  CONFIRM_TONE,
+  DEFAULT_READ_BACK,
+  TURN_TONE,
+  isReadBackMode,
+  readBackText,
+  type ReadBackMode,
+} from "./readback.ts";
 import { canSpeak, primeSpeech, SpeechOut, type SpeechEnd } from "./speech.ts";
 import type {
   ChatterRun,
@@ -25,9 +35,12 @@ import type {
 import {
   countTriggers,
   dropLastTurn,
+  isHeld,
   onPhrase,
   skipTurn,
   startRun,
+  tapConfirm,
+  tapDiscard,
   type RunOptions,
   type RunState,
   type TurnRecord,
@@ -39,13 +52,16 @@ const PAUSE_MS = 800; // partial unchanged this long → finalise the phrase our
 const TTS_WATCH_MS = 2500;
 const CHATTER_S = 300;
 const ENDURANCE_S = 1800;
+const MIN_ENDURANCE_S = 900; // 15 min: enough for a battery rate
 const WAKE_WINDOW_MS = 4000;
 const RECOVER_EVERY_MS = 3000;
 const RECOVER_TIMEOUT_MS = 8000;
 const SHOW_PAUSED_AFTER_MS = 3000;
 const SAVE_EVERY_MS = 30_000; // provisional saves, so a killed page keeps its data
 const AFTER_READBACK_MS = 3000; // the first phrase this soon after read-back is checked
-const CUT_OFF_MS = 250; // speech already under way this close to unmuting = cut off
+// A phrase whose first word starts within this of the mic reopening (or before it) was
+// probably cut off by the read-back: the player started talking while the app spoke.
+const CUT_OFF_MS = 300;
 const ONE_AT_A_TIME_STYLES = new Set([
   "one at a time",
   "checkout on dart 2",
@@ -56,7 +72,7 @@ const ONE_AT_A_TIME_STYLES = new Set([
 interface Chatter {
   readonly startedAt: number;
   readonly until: number;
-  phrases: readonly { readonly text: string; readonly at: number }[];
+  phrases: readonly { readonly text: string; readonly at: number; readonly words: readonly WordConfidence[] }[];
 }
 
 const checked = (id: string): boolean => ($(id) as HTMLInputElement).checked;
@@ -64,8 +80,10 @@ const emptyReadBacks = (): ReadBackStats => ({
   count: 0,
   failed: 0,
   suspectedCutOffs: 0,
+  cutOffTexts: [],
   safetyTimeouts: 0,
 });
+const wordsOf = (r: VoskResult): WordConfidence[] => r.words.map((w) => ({ word: w.word, conf: w.conf }));
 
 /** Hands-free run: mic open all session, phrases finalised on pauses, no button per turn. */
 export class HandsFreeRun {
@@ -77,9 +95,10 @@ export class HandsFreeRun {
     aliases: ALIASES,
     wakeRequired: false,
     wakeWindowMs: WAKE_WINDOW_MS,
+    scoring: "darts",
   };
-  private readBack = true;
-  private run: RunState = startRun(HANDSFREE_SCRIPT);
+  private readBack: ReadBackMode = DEFAULT_READ_BACK;
+  private run: RunState = startRun();
   private results = 0;
   private ignored = 0;
   private finalizedByPause = 0;
@@ -143,6 +162,8 @@ export class HandsFreeRun {
     $("hf-chatter").addEventListener("click", () => this.startChatter());
     $("hf-redo").addEventListener("click", () => this.redoLastTurn());
     $("hf-skip").addEventListener("click", () => this.skip());
+    $("hf-confirm").addEventListener("click", () => this.tap(true));
+    $("hf-discard").addEventListener("click", () => this.tap(false));
     $("hf-resume").addEventListener("click", () => {
       this.p.mic.primeContext(); // inside the tap
       void this.recover(true);
@@ -186,6 +207,7 @@ export class HandsFreeRun {
     // Synchronously inside the tap: iOS only starts audio and speech from a gesture.
     this.p.mic.primeContext();
     primeSpeech();
+    this.speech.primeTones();
     this.resetSession(); // sets active first, so a double tap can't start twice
     ($("hf-start") as HTMLButtonElement).disabled = true;
     ($("use-grammar") as HTMLInputElement).disabled = true; // a mid-run change would rebuild the recogniser
@@ -203,7 +225,7 @@ export class HandsFreeRun {
         return;
       }
       this.log(
-        `hands-free started${this.grammar ? "" : " · OPEN VOCABULARY"}${this.opts.wakeRequired ? " · wake word on" : ""}${this.readBack ? " · read-back on" : ""}`,
+        `hands-free started${this.grammar ? "" : " · OPEN VOCABULARY"}${this.opts.wakeRequired ? " · wake word on" : ""} · read-back ${this.readBack} · scoring ${this.opts.scoring}`,
       );
       show("hf-running", true);
       show("hf-start", false);
@@ -229,8 +251,9 @@ export class HandsFreeRun {
     this.startedIso = new Date().toISOString();
     this.grammar = this.useGrammar();
     this.opts = { ...this.opts, wakeRequired: checked("hf-wake") };
-    this.readBack = checked("hf-readback");
-    this.run = startRun(HANDSFREE_SCRIPT);
+    const mode = ($("hf-readback") as HTMLSelectElement).value;
+    this.readBack = isReadBackMode(mode) ? mode : DEFAULT_READ_BACK;
+    this.run = startRun();
     this.results = 0;
     this.ignored = 0;
     this.finalizedByPause = 0;
@@ -281,7 +304,9 @@ export class HandsFreeRun {
       grammar: this.grammar,
       durationS: Math.round(durationMs / 1000),
       wakeRequired: this.opts.wakeRequired,
-      readBack: this.readBack,
+      readBack: this.readBack !== "off",
+      readBackMode: this.readBack,
+      scoring: this.opts.scoring,
       results: this.results,
       ignored: this.ignored,
       finalizedByPause: this.finalizedByPause,
@@ -380,13 +405,18 @@ export class HandsFreeRun {
       this.opts.wakeRequired ? "Start each phrase with “score”." : "",
     ].filter(Boolean);
     setText("hf-hint", hints.join(" "));
-    const pending = this.run.turn.darts;
+    const t = this.run.turn;
+    const chips = t.darts.map((d, i) => `${dartNotation(d)}${t.doubtful[i] ? "?" : ""}`).join(" ");
+    const held = isHeld(this.run);
     setText(
       "hf-heard",
-      pending.length
-        ? `So far: ${toNotation(pending)} (${pending.length} dart${pending.length > 1 ? "s" : ""})`
-        : "",
+      held
+        ? `Check: ${chips || (t.total !== null ? `total ${t.total}` : "bust")} — say “yes” or “no”, or tap (${t.uncertain.join(", ")})`
+        : t.darts.length
+          ? `So far: ${chips} (${t.darts.length} dart${t.darts.length > 1 ? "s" : ""})${t.doubtful.some(Boolean) ? " · ? = needs a yes" : ""}`
+          : "",
     );
+    show("hf-held", held);
   }
 
   private tick(): void {
@@ -422,7 +452,7 @@ export class HandsFreeRun {
     if (now - this.lastSavedAt > SAVE_EVERY_MS) this.saveProvisional();
     setText(
       "hf-status",
-      `${paused ? "⏸ Mic paused" : healthy ? "● Listening" : "○ Reconnecting…"} · ${fmtClock(elapsedS)}${elapsedS >= ENDURANCE_S ? " ✓ 30 min: enter battery % and stop" : " / 30:00"} · audio ${state.context} · mic ${state.track}${state.muted ? " (muted)" : ""} · wake lock ${this.wakeLockState}`,
+      `${paused ? "⏸ Mic paused" : healthy ? "● Listening" : "○ Reconnecting…"} · ${fmtClock(elapsedS)}${elapsedS >= ENDURANCE_S ? " ✓ 30 min: enter battery % and stop" : elapsedS >= MIN_ENDURANCE_S ? " ✓ 15 min: battery % and stop is fine, 30 is better" : " / 15:00 (30 if you can)"} · audio ${state.context} · mic ${state.track}${state.muted ? " (muted)" : ""} · wake lock ${this.wakeLockState}`,
     );
     const cov = coverage(this.flow, now - this.startedAt, true);
     setText(
@@ -480,50 +510,66 @@ export class HandsFreeRun {
       return;
     }
     if (this.chatter) {
-      this.chatter.phrases = [
-        ...this.chatter.phrases,
-        { text: r.text, at: r.at },
-      ];
+      const words = wordsOf(r);
+      this.chatter.phrases = [...this.chatter.phrases, { text: r.text, at: r.at, words }];
+      const heard = parseHeard([{ text: r.text, words }], ALIASES, { scoring: "darts" });
       this.log(
-        `background: “${r.text}” → ${describeAccepted(accept(r.text, ALIASES))}`,
+        `background: “${r.text}” → ${describeResult(heard.result)}${heard.uncertain.length ? " (would ask for a yes)" : ""}`,
       );
       return;
     }
-    const a = accept(r.text, ALIASES);
     const parsedAt = performance.now();
-    const latencyMs =
-      r.speechEndAt !== null ? Math.round(parsedAt - r.speechEndAt) : null;
-    if (a.kind === "ignored") this.ignored += 1;
-    else if (latencyMs !== null)
-      this.latencies = [...this.latencies, latencyMs];
+    const latencyMs = r.speechEndAt !== null ? Math.round(parsedAt - r.speechEndAt) : null;
     const before = this.run;
-    this.run = onPhrase(
-      before,
-      HANDSFREE_SCRIPT,
-      { text: r.text, at: r.at, latencyMs },
-      this.opts,
-    );
-    const wakeMissed = this.run.phrases.at(-1)?.note === "no wake word";
-    this.log(
-      `“${r.text}” → ${describeAccepted(a)}${wakeMissed ? " · no wake word, not acted on" : ""} · ${fmtMs(latencyMs)}`,
-    );
-    if (this.run.finished && this.run.records.length > before.records.length)
+    this.run = onPhrase(before, HANDSFREE_SCRIPT, { text: r.text, at: r.at, latencyMs, words: wordsOf(r) }, this.opts);
+    const last = this.run.lastPhrase;
+    const acted = last?.acted ?? false;
+    if (!acted && last?.note !== "wake word") this.ignored += 1;
+    else if (acted && latencyMs !== null) this.latencies = [...this.latencies, latencyMs];
+    const conf = last?.minConf ?? null;
+    this.log(`“${r.text}” → ${last?.note ?? "?"}${conf !== null ? ` · conf ${conf.toFixed(2)}` : ""} · ${fmtMs(latencyMs)}`);
+    this.afterPhrase(before);
+  }
+
+  /** Scores a finished turn, or cues a held one with the confirm tone. */
+  private afterPhrase(before: RunState): void {
+    if (this.run.finished && this.run.records.length > before.records.length) {
       this.finishTurn(this.run.finished);
-    else this.renderPrompt();
+      return;
+    }
+    if (isHeld(this.run) && !isHeld(before)) this.cue(CONFIRM_TONE, "confirm cue");
+    this.renderPrompt();
+  }
+
+  /** The Confirm / Discard buttons, the same as saying "yes" / "no". */
+  private tap(confirm: boolean): void {
+    if (!this.active || !HANDSFREE_SCRIPT[this.run.index]) return;
+    const before = this.run;
+    this.run = confirm ? tapConfirm(before, HANDSFREE_SCRIPT) : tapDiscard(before, HANDSFREE_SCRIPT);
+    this.log(confirm ? "tap: confirm" : "tap: discard");
+    this.afterPhrase(before);
+  }
+
+  private cue(pattern: readonly number[], label: string): void {
+    if (this.readBack === "off" || this.ttsBusy || this.speech.speaking) return;
+    this.speech.tone(pattern, true, (how) => {
+      if (how !== "end") this.log(`${label}: no sound`);
+      this.afterReadBackUntil = performance.now() + AFTER_READBACK_MS;
+    });
   }
 
   /** The first result after a read-back: speech already under way when the mic unmuted was cut off. */
   private checkCutOff(r: VoskResult): void {
     if (performance.now() > this.afterReadBackUntil) return;
     this.afterReadBackUntil = 0;
-    if (
-      r.speechStartAt === null ||
-      r.speechStartAt > this.unmutedAt + CUT_OFF_MS
-    )
-      return;
+    // No start time means the first word was already under way when the recogniser
+    // restarted at unmute: that is a cut-off too.
+    if (r.speechStartAt !== null && r.speechStartAt > this.unmutedAt + CUT_OFF_MS) return;
+    if (isIgnorable(r.text)) return;
     this.readBacks = {
       ...this.readBacks,
       suspectedCutOffs: this.readBacks.suspectedCutOffs + 1,
+      cutOffTexts: [...(this.readBacks.cutOffTexts ?? []), r.text].slice(-20),
     };
     this.log(
       `speech was already under way when the mic unmuted: maybe cut off (“${r.text}”)`,
@@ -537,7 +583,7 @@ export class HandsFreeRun {
     );
     $("hf-verdict").className = t.correct ? "ok" : "bad";
     this.renderPrompt();
-    if (this.readBack && t.end !== "skipped") this.readBackTurn(t);
+    if (this.readBack !== "off" && t.end !== "skipped") this.readBackTurn(t);
   }
 
   private countSpeech(how: SpeechEnd): void {
@@ -554,14 +600,11 @@ export class HandsFreeRun {
       this.log(`read-back skipped for ${t.id}: still speaking`);
       return;
     }
-    const text =
-      t.end === "checkout"
-        ? "Game shot"
-        : t.end === "bust"
-          ? "Bust"
-          : t.score === 0
-            ? "No score"
-            : String(t.score);
+    const text = readBackText(t, this.readBack);
+    if (text === null) {
+      this.cue(TURN_TONE, "turn tone");
+      return;
+    }
     this.speech.speak(text, true, (how) => {
       this.countSpeech(how);
       this.readBacks =
@@ -586,7 +629,7 @@ export class HandsFreeRun {
   private redoLastTurn(): void {
     if (!this.active || this.run.records.length === 0) return;
     const dropped = this.run.records.at(-1);
-    this.run = dropLastTurn(this.run, HANDSFREE_SCRIPT);
+    this.run = dropLastTurn(this.run);
     this.log(`redo: dropped ${dropped?.id ?? ""} (${dropped?.heard ?? ""})`);
     setText("hf-verdict", "Last turn dropped. Say it again.");
     $("hf-verdict").className = "";
@@ -730,11 +773,13 @@ export class HandsFreeRun {
       phrases: this.chatter.phrases.map((p) => p.text),
       acted: c.acted,
       actedWithWake: c.actedWithWake,
+      confirmPrompts: c.confirmPrompts,
       kinds: c.kinds,
       actedTexts: c.actedTexts,
+      confirmTexts: c.confirmTexts,
     };
     this.chatters = [...this.chatters, run];
-    const summary = `${run.acted} false triggers (${run.actedWithWake} with the wake word) from ${run.phrases.length} phrases`;
+    const summary = `${run.acted} false triggers (${run.actedWithWake} with the wake word) and ${run.confirmPrompts} yes/no prompts from ${run.phrases.length} phrases`;
     this.log(
       `background test ${completed ? "done" : "stopped early"}: ${summary}`,
     );

@@ -53,14 +53,24 @@
       </section>
 
       <section class="card" aria-labelledby="h-hf">
-        <h2 id="h-hf">3 · Hands-free: 14 turns, then 30 minutes</h2>
+        <h2 id="h-hf">3 · Hands-free: 14 turns, then at least 15 minutes</h2>
         <p class="small muted">
           The mic stays open with no button. Prop the phone up by the board, screen on, and step back to the oche (about 2.4 m). Say each turn as prompted:
           some in one breath, some <b>one dart at a time</b> with pauses, plus a checkout on dart 1 and on dart 2, a bust, and "next"/"done" early.
-          Phrases that don't parse are ignored and logged. Then leave it running to reach <b>30 minutes</b> for the battery and endurance test.
+          Phrases that don't parse are ignored and logged. A turn the app isn't sure of (a dart marked <b>?</b>) waits for you to say <b>“yes”</b> or
+          <b>“no”</b>, or to tap Confirm / Discard, and you hear a two-note tone when that happens. Then leave it running for at least <b>15 minutes</b>
+          (30 if you can) for the battery and endurance test.
         </p>
         <div id="hf-options" class="row small">
-          <label><input type="checkbox" id="hf-readback" checked /> Read back each turn (mic muted while it speaks)</label>
+          <label
+            >Read back each turn
+            <select id="hf-readback">
+              <option value="score" selected>the score (short)</option>
+              <option value="beep">a beep</option>
+              <option value="full">the darts and the score</option>
+              <option value="off">off</option>
+            </select></label
+          >
           <label><input type="checkbox" id="hf-wake" /> Require the wake word “score” (for noisy rooms)</label>
         </div>
         <div class="row small">
@@ -79,6 +89,10 @@
           <p class="small" id="hf-hint"></p>
           <p class="heard muted" id="hf-partial"></p>
           <p class="heard" id="hf-heard"></p>
+          <div id="hf-held" hidden class="row">
+            <button class="primary" id="hf-confirm">✓ Confirm</button>
+            <button id="hf-discard">✗ Discard the ? darts</button>
+          </div>
           <p id="hf-verdict" aria-live="polite"></p>
           <div class="row">
             <button id="hf-skip">Skip this turn</button>
