@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1A1F1D" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Vosk test" />
+    <title>Vosk prototype</title>
+  </head>
+  <body>
+    <main>
+      <header class="card">
+        <h1>Vosk on iPhone: prototype</h1>
+        <p class="small muted" id="env">Checking this device…</p>
+        <p class="small" id="install-hint" hidden>
+          For the real test, also install it: tap <b>Share</b> → <b>Add to Home Screen</b>, open it from the Home Screen, and run the steps again.
+          Results from the browser tab and the installed app are kept apart in the report.
+        </p>
+      </header>
+
+      <section class="card" aria-labelledby="h-setup">
+        <h2 id="h-setup">1 · Set up</h2>
+        <div class="row">
+          <button class="primary" id="load-model">Load speech model</button>
+          <button id="allow-mic">Allow microphone</button>
+        </div>
+        <p class="small" id="model-status">Model not loaded.</p>
+        <p class="small" id="mic-status">Microphone off.</p>
+        <label class="row small"><input type="checkbox" id="use-grammar" checked /> Use the darts grammar (recommended; untick to compare open vocabulary)</label>
+        <div class="meter" id="level" aria-hidden="true"><i></i></div>
+        <p class="small" id="ready-status">Not ready.</p>
+        <p class="small muted" id="setup-event"></p>
+      </section>
+
+      <section class="card" aria-labelledby="h-ptt">
+        <h2 id="h-ptt">2 · Push-to-talk: 36 phrases</h2>
+        <p class="small muted">Tap the mic, say the phrase, then stop talking. It stops on its own after 1.2 s of silence. A match moves on by itself.</p>
+        <p class="small muted" id="ptt-progress"></p>
+        <p class="prompt" id="ptt-prompt" aria-live="polite"></p>
+        <button class="mic" id="ptt-mic" aria-label="Tap to talk">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
+        </button>
+        <p class="heard muted" id="ptt-partial"></p>
+        <p class="heard" id="ptt-heard"></p>
+        <p id="ptt-verdict" aria-live="polite"></p>
+        <div class="row">
+          <button id="ptt-redo">Redo this one</button>
+          <button id="ptt-skip">Skip</button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-hf">
+        <h2 id="h-hf">3 · Hands-free</h2>
+        <p class="small muted">
+          The mic stays open with no button. Prop the phone up by the board and step back to the oche (about 2.4 m). Say each turn the way you would in a game; pauses between darts are fine.
+          Leave it running for <b>15 minutes or more</b> for the endurance test.
+        </p>
+        <div class="row small">
+          <label>Battery at start <input type="number" inputmode="numeric" min="0" max="100" id="hf-batt-start" style="width: 5em" />%</label>
+          <label>at end <input type="number" inputmode="numeric" min="0" max="100" id="hf-batt-end" style="width: 5em" />%</label>
+        </div>
+        <button class="primary" id="hf-start">Start hands-free</button>
+        <p class="small" id="hf-status-idle" aria-live="polite"></p>
+        <div id="hf-running" hidden style="display: grid; gap: 12px">
+          <p class="small" id="hf-status"></p>
+          <p class="small muted" id="hf-counts"></p>
+          <p class="small muted" id="hf-progress"></p>
+          <p class="prompt" id="hf-prompt" aria-live="polite"></p>
+          <p class="heard muted" id="hf-partial"></p>
+          <p class="heard" id="hf-heard"></p>
+          <p id="hf-verdict" aria-live="polite"></p>
+          <button id="hf-resume" hidden>Mic lost: tap to resume</button>
+          <div class="row">
+            <button id="hf-redo">That didn't count: redo last turn</button>
+          </div>
+          <div class="row">
+            <button id="hf-tts">Test speech output</button>
+            <button id="hf-tts-open">Speech output, mic left open</button>
+            <button id="hf-chatter">60 s chatter test</button>
+            <button id="hf-stop">Stop and save</button>
+          </div>
+          <p class="small muted">
+            “Test speech output” is how the app will work: it stops listening while it speaks. The “mic left open” version checks whether the phone's echo
+            cancellation alone would stop the recogniser from hearing its own voice.
+          </p>
+          <div id="hf-tts-rate" hidden class="row small">
+            How did “One hundred and eighty” sound?
+            <button id="hf-tts-loud">Loud (speaker)</button>
+            <button id="hf-tts-quiet">Quiet (earpiece)</button>
+            <button id="hf-tts-silent">Didn’t hear it</button>
+          </div>
+          <p class="small muted" id="hf-chatter-status">Chatter test: talk normally (or leave the TV on) for 60 s without saying darts. Anything it picks up counts as a false trigger.</p>
+          <pre class="log" id="hf-log" aria-label="Hands-free event log"></pre>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="h-report">
+        <h2 id="h-report">4 · Report</h2>
+        <p class="small muted">Results are saved on this device as you go. When you're done, copy or share the report and paste it into the chat.</p>
+        <label class="small" for="notes">Notes (room, noise, accent, anything odd)</label>
+        <textarea id="notes" rows="3" style="font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); padding: 8px"></textarea>
+        <pre class="log" id="report-summary"></pre>
+        <div class="row">
+          <button class="primary" id="copy-report">Copy report</button>
+          <button id="share-report">Share…</button>
+          <button id="reset-report">Erase results</button>
+        </div>
+        <p class="small" id="report-status" aria-live="polite"></p>
+        <details>
+          <summary>Raw JSON</summary>
+          <textarea id="report-json" rows="10" readonly style="width: 100%; font-size: 12px; border-radius: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--line)"></textarea>
+        </details>
+      </section>
+    </main>
+    <script type="module" src="/src/proto/vosk/main.ts"></script>
+  </body>
+</html>

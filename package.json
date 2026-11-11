@@ -1,0 +1,35 @@
+{
+  "name": "kuggles-counter",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Free, offline, voice-controlled darts scorer (PWA). Name is a placeholder.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "vite --host",
+    "dev:https": "HTTPS=1 vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "readability": "node scripts/readability-check.mjs > docs/design/chalk-readability.md",
+    "model:fetch": "bash scripts/fetch-vosk-model.sh",
+    "model:check-vocab": "node scripts/check-vosk-vocab.mjs"
+  },
+  "dependencies": {
+    "@fontsource/atkinson-hyperlegible": "5.3.0",
+    "@fontsource/barlow-condensed": "5.3.0",
+    "vosk-browser": "0.0.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@vitejs/plugin-basic-ssl": "2.3.0",
+    "@vitest/coverage-v8": "4.1.12",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vitest": "4.1.12"
+  }
+}

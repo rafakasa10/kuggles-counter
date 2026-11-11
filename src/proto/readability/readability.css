@@ -1,0 +1,215 @@
+/* Chalk in-game screen sample for the on-phone readability test. Sizes are set inline from chalk.json. */
+body {
+  padding-top: 0;
+}
+#screen {
+  min-height: 100dvh;
+  margin-left: calc(-1 * max(16px, env(safe-area-inset-left, 0px)));
+  margin-right: calc(-1 * max(16px, env(safe-area-inset-right, 0px)));
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg);
+  color: var(--text);
+  user-select: none;
+  -webkit-user-select: none;
+}
+#screen .top {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 16px;
+}
+.num {
+  font-family: var(--num);
+  font-weight: 800;
+  line-height: 0.92;
+  font-variant-numeric: tabular-nums;
+}
+.pn {
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.03em;
+}
+.legs {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 700;
+}
+.cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.pc {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.pc .pn {
+  display: flex;
+}
+.pc.on,
+.lr.on {
+  background: var(--active-bg);
+  color: var(--active-text);
+  border: 2px solid var(--active-line);
+}
+.hint {
+  font-weight: 700;
+  color: var(--text);
+  min-height: 1.2em;
+}
+.st {
+  color: var(--text-muted);
+}
+.list {
+  display: grid;
+  gap: 6px;
+}
+.lr {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 12px;
+}
+.lr .hint {
+  margin-left: auto;
+}
+.turn {
+  background: var(--surface-raised);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.chips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: center;
+}
+.chips.route {
+  opacity: 0.95;
+}
+.chip {
+  font-family: var(--num);
+  font-weight: 800;
+  line-height: 1;
+  padding: 0.08em 0.18em;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  color: var(--text);
+}
+.chip.tpl {
+  background: var(--treble);
+  color: var(--treble-ink);
+}
+.chip.dbl {
+  border: 6px double var(--double);
+  color: var(--double);
+  padding: 0 0.12em;
+}
+.chip.miss {
+  border: 2px dashed var(--text-muted);
+  color: var(--text-muted);
+}
+.total {
+  white-space: nowrap;
+}
+.pad {
+  margin-top: auto;
+  display: grid;
+  gap: 5px;
+}
+.mult {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+.mult span {
+  text-align: center;
+  padding: 10px 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--key-bg);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.05em;
+}
+.mult .on {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+.mult .dblk {
+  border: 5px double var(--double);
+}
+.mult .tplk {
+  box-shadow: inset 0 -6px 0 var(--treble);
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+}
+.k {
+  height: 48px;
+  display: grid;
+  place-items: center;
+  background: var(--key-bg);
+  color: var(--key-text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.k.fn {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+.k.mic {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+[data-view="distance"] .hero {
+  text-align: center;
+}
+.dhead {
+  display: flex;
+  align-items: baseline;
+}
+.others {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  align-items: baseline;
+}
+.bar {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+  color: var(--text-muted);
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  min-height: 56px;
+  align-items: center;
+}
+.controls {
+  display: grid;
+  gap: 12px;
+  padding-block: 16px;
+}

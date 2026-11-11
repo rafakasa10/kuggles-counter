@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1A1F1D" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Readability test</title>
+  </head>
+  <body>
+    <div id="screen" aria-label="Sample in-game screen. Tap to shuffle the numbers."></div>
+    <main class="controls">
+      <section class="card">
+        <h2>Readability test</h2>
+        <p class="small">
+          Prop the phone up by the board at full brightness, step back to the oche (about 2.4 m) and read the screen above out loud.
+          Tap the screen to shuffle the numbers so you can't read them from memory. Then mark what you could read, and repeat for each view and theme.
+        </p>
+        <div class="row">
+          <button id="t-view">Distance view</button>
+          <button id="t-theme">Chalk (dark)</button>
+          <button id="t-players">2 players</button>
+          <button id="t-shuffle">Shuffle</button>
+        </div>
+      </section>
+      <section class="card">
+        <h2>From the oche I could read…</h2>
+        <label class="row small">Room light
+          <select id="light">
+            <option value="dim">Dim (pub, evening)</option>
+            <option value="normal" selected>Normal indoor</option>
+            <option value="bright">Bright (daylight, window)</option>
+          </select>
+        </label>
+        <div id="checks" style="display: grid; gap: 8px"></div>
+        <div class="row">
+          <button class="primary" id="save-check">Save this check</button>
+          <button id="copy-checks">Copy all checks</button>
+        </div>
+        <p class="small" id="check-status" aria-live="polite"></p>
+        <pre class="log" id="check-log"></pre>
+      </section>
+    </main>
+    <script type="module" src="/src/proto/readability/main.ts"></script>
+  </body>
+</html>

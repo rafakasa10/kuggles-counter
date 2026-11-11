@@ -1,0 +1,191 @@
+{
+  "language": "en",
+  "speechLocales": [
+    "en-GB",
+    "en-US",
+    "en-AU",
+    "en-IE",
+    "en-ZA"
+  ],
+  "multipliers": {
+    "single": 1,
+    "singles": 1,
+    "s": 1,
+    "double": 2,
+    "doubles": 2,
+    "d": 2,
+    "dub": 2,
+    "dubs": 2,
+    "triple": 3,
+    "triples": 3,
+    "treble": 3,
+    "trip": 3,
+    "trips": 3,
+    "t": 3
+  },
+  "numbers": {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+    "thirty": 30,
+    "forty": 40,
+    "fifty": 50,
+    "sixty": 60,
+    "seventy": 70,
+    "eighty": 80,
+    "ninety": 90,
+    "hundred": 100
+  },
+  "numberConnectors": [
+    "and"
+  ],
+  "totalWords": {
+    "ton": 100
+  },
+  "homophones": {
+    "to": "two",
+    "too": "two",
+    "for": "four",
+    "fore": "four",
+    "ate": "eight",
+    "won": "one",
+    "tree": "three",
+    "free": "three",
+    "sicks": "six",
+    "tin": "ten"
+  },
+  "specials": {
+    "bullseye": {
+      "segment": 25,
+      "multiplier": 2
+    },
+    "bull": {
+      "segment": 25,
+      "multiplier": 2
+    },
+    "double bull": {
+      "segment": 25,
+      "multiplier": 2
+    },
+    "inner bull": {
+      "segment": 25,
+      "multiplier": 2
+    },
+    "fifty": {
+      "segment": 25,
+      "multiplier": 2
+    },
+    "outer bull": {
+      "segment": 25,
+      "multiplier": 1
+    },
+    "single bull": {
+      "segment": 25,
+      "multiplier": 1
+    },
+    "twenty five": {
+      "segment": 25,
+      "multiplier": 1
+    },
+    "tops": {
+      "segment": 20,
+      "multiplier": 2
+    },
+    "miss": {
+      "segment": 0,
+      "multiplier": 0
+    },
+    "zero": {
+      "segment": 0,
+      "multiplier": 0
+    },
+    "nothing": {
+      "segment": 0,
+      "multiplier": 0
+    },
+    "no score": {
+      "segment": 0,
+      "multiplier": 0
+    },
+    "out": {
+      "segment": 0,
+      "multiplier": 0
+    },
+    "bounce out": {
+      "segment": 0,
+      "multiplier": 0
+    }
+  },
+  "commands": {
+    "undo": [
+      "undo",
+      "take back",
+      "take it back"
+    ],
+    "next": [
+      "next",
+      "done"
+    ],
+    "bust": [
+      "bust"
+    ],
+    "remaining": [
+      "what's left",
+      "what is left",
+      "how many left"
+    ],
+    "newGame": [
+      "new game"
+    ],
+    "confirm": [
+      "yes",
+      "correct",
+      "confirm"
+    ],
+    "cancel": [
+      "no",
+      "cancel",
+      "scratch that"
+    ],
+    "pause": [
+      "stop listening",
+      "pause"
+    ]
+  },
+  "modePhrases": {
+    "hits": [
+      "hit",
+      "hits",
+      "no hits",
+      "one hit",
+      "two hits",
+      "three hits"
+    ]
+  },
+  "fillers": [
+    "er",
+    "erm",
+    "um",
+    "uh",
+    "then",
+    "a",
+    "the"
+  ]
+}

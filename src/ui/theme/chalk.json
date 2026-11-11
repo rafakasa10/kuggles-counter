@@ -1,0 +1,156 @@
+{
+  "name": "Chalk",
+  "description": "Direction A (approved 2026-11-11). Dark-first pub chalkboard; 'Whiteboard' light theme for bright rooms.",
+  "themes": {
+    "dark": {
+      "bg": "#1A1F1D",
+      "surface": "#222926",
+      "surfaceRaised": "#29312D",
+      "text": "#ECEDE4",
+      "textMuted": "#A3ACA5",
+      "line": "#3A4440",
+      "accent": "#EBDB79",
+      "accentInk": "#1A1F1D",
+      "activeBg": "#2E3833",
+      "activeText": "#F6F7EE",
+      "activeLine": "#EBDB79",
+      "treble": "#93D3A2",
+      "trebleInk": "#13201A",
+      "double": "#E7A3F0",
+      "bust": "#F29A8B",
+      "keyBg": "#222926",
+      "keyText": "#ECEDE4"
+    },
+    "light": {
+      "bg": "#F3F4EF",
+      "surface": "#FFFFFF",
+      "surfaceRaised": "#E7E9E2",
+      "text": "#141816",
+      "textMuted": "#4E5651",
+      "line": "#C9CDC4",
+      "accent": "#1A1F1D",
+      "accentInk": "#F3F4EF",
+      "activeBg": "#1A1F1D",
+      "activeText": "#F6F7EE",
+      "activeLine": "#1A1F1D",
+      "treble": "#175C3D",
+      "trebleInk": "#FFFFFF",
+      "double": "#9B2A8F",
+      "bust": "#B02A20",
+      "keyBg": "#FFFFFF",
+      "keyText": "#141816"
+    }
+  },
+  "fonts": {
+    "numbers": {
+      "family": "Barlow Condensed",
+      "weight": 800,
+      "digitHeightEm": 0.714,
+      "digit3WidthEm": 1.196,
+      "chipWidthEm": {
+        "T20": 1.392,
+        "BULL": 1.831
+      }
+    },
+    "ui": {
+      "family": "Atkinson Hyperlegible",
+      "weight": 700,
+      "digitHeightEm": 0.68,
+      "digit3WidthEm": 1.725
+    }
+  },
+  "typeScalePt": {
+    "hand": {
+      "remaining2up": {
+        "size": 104,
+        "font": "numbers",
+        "distanceM": 2.4
+      },
+      "remainingListActive": {
+        "size": 104,
+        "font": "numbers",
+        "distanceM": 2.4
+      },
+      "remainingListOther": {
+        "size": 52,
+        "font": "numbers",
+        "distanceM": 0.35
+      },
+      "turnTotal": {
+        "size": 72,
+        "font": "numbers",
+        "distanceM": 0.35
+      },
+      "chip": {
+        "size": 34,
+        "font": "numbers",
+        "distanceM": 0.35,
+        "chipRow": true
+      },
+      "checkoutHint": {
+        "size": 22,
+        "font": "ui",
+        "distanceM": 0.35
+      },
+      "statLine": {
+        "size": 16,
+        "font": "ui",
+        "distanceM": 0.35
+      },
+      "key": {
+        "size": 24,
+        "font": "numbers",
+        "distanceM": 0.35
+      }
+    },
+    "distance": {
+      "remainingActive": {
+        "size": 200,
+        "font": "numbers",
+        "distanceM": 2.4
+      },
+      "remainingOther": {
+        "size": 104,
+        "font": "numbers",
+        "distanceM": 2.4,
+        "note": "2-4 players"
+      },
+      "remainingOther5to8": {
+        "size": 72,
+        "font": "numbers",
+        "distanceM": 2.4,
+        "minArcmin": 10,
+        "note": "5-8 players, secondary"
+      },
+      "turnTotal": {
+        "size": 112,
+        "font": "numbers",
+        "distanceM": 2.4
+      },
+      "chip": {
+        "size": 64,
+        "font": "numbers",
+        "distanceM": 2.4,
+        "minArcmin": 10,
+        "chipRow": true,
+        "note": "secondary to the turn total; spoken read-back available"
+      },
+      "checkoutHint": {
+        "size": 64,
+        "font": "numbers",
+        "distanceM": 2.4,
+        "minArcmin": 10,
+        "chipRow": true,
+        "note": "rendered as chips"
+      }
+    }
+  },
+  "chipCoding": {
+    "single": "plain number, no border (e.g. 8)",
+    "double": "prefix D, double-line outline in the double colour (orchid / plum), double-colour text (e.g. D16); BULL 50 uses the same double outline",
+    "treble": "prefix T, solid fill in the treble colour with treble-ink text (e.g. T20)",
+    "outerBull": "plain 25, like a single",
+    "miss": "en dash, dashed muted outline",
+    "bust": "whole turn strip tinted with the bust colour, chips struck through, label BUST; red is reserved for bust"
+  }
+}

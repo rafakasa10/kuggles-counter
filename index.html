@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1A1F1D" />
+    <title>[APP NAME] · prototypes</title>
+  </head>
+  <body>
+    <main>
+      <header class="card">
+        <h1>[APP NAME]</h1>
+        <p class="muted">A free, offline, voice-controlled darts scorer. The app itself isn't built yet; these two pages are the tests that come first.</p>
+      </header>
+      <a class="card" href="./proto/vosk/" style="text-decoration: none; color: inherit">
+        <h2>Vosk on iPhone →</h2>
+        <p class="small muted">Offline speech recognition test: model download, microphone, push-to-talk accuracy, hands-free endurance, speech output. It produces a report to paste back.</p>
+      </a>
+      <a class="card" href="./readability/" style="text-decoration: none; color: inherit">
+        <h2>Readability from the oche →</h2>
+        <p class="small muted">The Chalk in-game screen at real size, in Hand and Distance view and both themes. Check it from 2.4 m.</p>
+      </a>
+    </main>
+    <script type="module">
+      import './src/proto/proto.css';
+      import { applyTheme, preferredTheme } from './src/proto/theme.ts';
+      applyTheme(preferredTheme());
+    </script>
+  </body>
+</html>
