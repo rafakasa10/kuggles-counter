@@ -28,7 +28,7 @@ export default defineConfig({
     environment: "node",
     coverage: {
       provider: "v8",
-      include: ["src/voice/**", "src/proto/vosk/score.ts"],
+      include: ["src/voice/**", "src/engine/**", "src/proto/vosk/score.ts"],
     },
   },
 });

@@ -169,7 +169,7 @@
       ]
     },
     {
-      "name": "Ambiguous: 'one' + 10–29 (darts or a 110–129 total; the UI asks yes/no)",
+      "name": "Two readings with different scores (the UI asks yes/no)",
       "cases": [
         { "text": "one twenty", "expect": "total 120", "alt": "S1 S20", "note": "two numbers: read as a total" },
         { "text": "one twelve", "expect": "total 112", "alt": "S1 S12" },
